@@ -1,13 +1,13 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Bot, Send, User, X, Maximize, Minimize, ChevronRight } from "lucide-react"
+import { Fish, Send, User, X, Maximize, Minimize, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import ReactMarkdown from "react-markdown"
 
 interface AIAssistantProps {
   onClose: () => void
@@ -23,7 +23,7 @@ export function AIAssistant({ onClose }: AIAssistantProps) {
   >([
     {
       role: "assistant",
-      content: "Hello! I'm your MigrateWatch assistant. How can I help you analyze marine migration patterns today?",
+      content: "Hello! I'm your OceanPulse assistant. How can I help you analyze marine migration patterns today?",
       timestamp: new Date(),
     },
   ])
@@ -38,14 +38,17 @@ export function AIAssistant({ onClose }: AIAssistantProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim() || isLoading) return
+
+    // Store the current input value before clearing it
+    const currentInput = input.trim()
 
     // Add user message
     const userMessage = {
       role: "user" as const,
-      content: input,
+      content: currentInput,
       timestamp: new Date(),
     }
 
@@ -53,27 +56,76 @@ export function AIAssistant({ onClose }: AIAssistantProps) {
     setInput("")
     setIsLoading(true)
 
-    // Simulate AI response
-    setTimeout(() => {
-      const responses = [
-        "Based on the current data, North Atlantic Right Whales are showing increased activity in the highlighted areas. The collision risk is high (78%) in these regions.",
-        "I've analyzed the shipping lanes and found that the alternative route reduces collision risk by 65% with only an 8% increase in travel distance.",
-        "The protected marine area you're looking at has seen a 23% increase in whale sightings compared to last year.",
-        "Current migration patterns suggest we should consider seasonal speed restrictions in the highlighted conflict zones.",
-        "I can see that the sea temperature in this region has increased by 1.2°C over the past decade, which correlates with the changing migration patterns.",
-      ]
+    try {
+      console.log("Sending request to Gemini API with prompt:", currentInput)
 
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)]
+      // Call the Gemini API with proper error handling
+      const response = await fetch("https://flaskapi-shiphappens.azurewebsites.net/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: currentInput,
+        }),
+      })
+
+      console.log("API response status:", response.status)
+
+      // Get the raw text first for debugging
+      const responseText = await response.text()
+      console.log("API raw response:", responseText)
+
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}: ${responseText}`)
+      }
+
+      // Parse the JSON manually after confirming it's valid
+      let data
+      try {
+        data = JSON.parse(responseText)
+        console.log("Parsed response data:", data)
+      } catch (parseError) {
+        console.error("Failed to parse JSON response:", parseError)
+        throw new Error("Invalid JSON response from API")
+      }
+
+      // Check if the response contains the expected data
+      // The API returns data.content instead of data.response
+      let responseContent = ""
+
+      if (data && typeof data.content === "string") {
+        // Use the content field from the response
+        responseContent = data.content
+      } else if (data && typeof data.response === "string") {
+        // Fallback to response field if content is not available
+        responseContent = data.response
+      } else {
+        console.error("Unexpected response format:", data)
+        throw new Error("Unexpected response format from API")
+      }
 
       const assistantMessage = {
         role: "assistant" as const,
-        content: randomResponse,
+        content: responseContent,
         timestamp: new Date(),
       }
 
       setMessages((prev) => [...prev, assistantMessage])
+    } catch (error) {
+      console.error("Detailed error calling Gemini API:", error)
+
+      // Add error message
+      const errorMessage = {
+        role: "assistant" as const,
+        content: "I'm sorry, there was an error processing your request. Please try again later.",
+        timestamp: new Date(),
+      }
+
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
       setIsLoading(false)
-    }, 1500)
+    }
   }
 
   const formatTime = (date: Date) => {
@@ -84,17 +136,59 @@ export function AIAssistant({ onClose }: AIAssistantProps) {
     setIsExpanded(!isExpanded)
   }
 
+  // Custom renderer for markdown content
+  const MessageContent = ({ content, role }: { content: string; role: "user" | "assistant" }) => {
+    if (role === "user") {
+      // Don't apply markdown to user messages
+      return <div className="text-sm">{content}</div>
+    }
+
+    return (
+      <div className="text-sm markdown-content">
+        <ReactMarkdown
+          components={{
+            // Customize heading styles
+            h1: ({ node, ...props }) => <h1 className="text-lg font-bold my-2" {...props} />,
+            h2: ({ node, ...props }) => <h2 className="text-base font-bold my-2" {...props} />,
+            h3: ({ node, ...props }) => <h3 className="text-sm font-bold my-1" {...props} />,
+            h4: ({ node, ...props }) => <h4 className="text-sm font-semibold my-1" {...props} />,
+            // Customize paragraph styles
+            p: ({ node, ...props }) => <p className="my-1.5" {...props} />,
+            // Customize list styles
+            ul: ({ node, ...props }) => <ul className="list-disc pl-5 my-1.5" {...props} />,
+            ol: ({ node, ...props }) => <ol className="list-decimal pl-5 my-1.5" {...props} />,
+            li: ({ node, ...props }) => <li className="my-0.5" {...props} />,
+            // Customize code styles
+            code: ({ node, inline, ...props }) =>
+              inline ? (
+                <code className="bg-migratewatch-dark px-1 py-0.5 rounded text-xs" {...props} />
+              ) : (
+                <code className="block bg-migratewatch-dark p-2 rounded text-xs my-2 overflow-x-auto" {...props} />
+              ),
+            // Customize emphasis styles
+            em: ({ node, ...props }) => <em className="italic" {...props} />,
+            strong: ({ node, ...props }) => <strong className="font-bold" {...props} />,
+            // Customize link styles
+            a: ({ node, ...props }) => <a className="text-migratewatch-cyan underline" {...props} />,
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    )
+  }
+
   return (
     <div
       className={cn(
         "flex flex-col h-full bg-migratewatch-darker border-l border-migratewatch-panel transition-all duration-300",
-        isExpanded ? "w-96" : "w-80",
+        isExpanded ? "w-[600px]" : "w-80",
       )}
     >
       <CardHeader className="px-4 py-3 flex flex-row items-center justify-between space-y-0 border-b border-migratewatch-panel">
         <CardTitle className="text-base text-white flex items-center">
-          <Bot className="h-5 w-5 mr-2 text-migratewatch-cyan" />
-          MigrateWatch Assistant
+          <Fish className="h-5 w-5 mr-2 text-migratewatch-cyan" />
+          OceanPulse Assistant
         </CardTitle>
         <div className="flex items-center space-x-1">
           <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-white" onClick={toggleExpand}>
@@ -114,19 +208,19 @@ export function AIAssistant({ onClose }: AIAssistantProps) {
           >
             {message.role === "assistant" && (
               <div className="w-8 h-8 rounded-full bg-migratewatch-cyan flex items-center justify-center flex-shrink-0">
-                <Bot className="h-4 w-4 text-migratewatch-dark" />
+                <Fish className="h-4 w-4 text-migratewatch-dark" />
               </div>
             )}
 
             <div
               className={cn(
-                "max-w-[80%] rounded-lg p-3",
+                "rounded-lg p-3",
                 message.role === "assistant"
-                  ? "bg-migratewatch-panel text-white"
-                  : "bg-migratewatch-cyan text-migratewatch-dark",
+                  ? "bg-migratewatch-panel text-white max-w-[90%]"
+                  : "bg-migratewatch-cyan text-migratewatch-dark max-w-[75%]",
               )}
             >
-              <div className="text-sm">{message.content}</div>
+              <MessageContent content={message.content} role={message.role} />
               <div className="text-xs opacity-70 mt-1 text-right">{formatTime(message.timestamp)}</div>
             </div>
 
@@ -141,7 +235,7 @@ export function AIAssistant({ onClose }: AIAssistantProps) {
         {isLoading && (
           <div className="flex items-start space-x-2">
             <div className="w-8 h-8 rounded-full bg-migratewatch-cyan flex items-center justify-center flex-shrink-0">
-              <Bot className="h-4 w-4 text-migratewatch-dark" />
+              <Fish className="h-4 w-4 text-migratewatch-dark" />
             </div>
             <div className="bg-migratewatch-panel text-white max-w-[80%] rounded-lg p-3">
               <div className="flex space-x-1">

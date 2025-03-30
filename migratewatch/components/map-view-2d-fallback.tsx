@@ -224,7 +224,7 @@ function drawMap(ctx: CanvasRenderingContext2D, width: number, height: number, d
 
   // Draw data layers
   if (dataLayers.migrationRoutes) {
-    drawMigrationRoutes(ctx, width, height)
+    drawMigrationRoutes(ctx, width, height, dataLayers)
   }
 
   if (dataLayers.shippingLanes) {
@@ -241,48 +241,44 @@ function drawMap(ctx: CanvasRenderingContext2D, width: number, height: number, d
 }
 
 // Draw migration routes
-function drawMigrationRoutes(ctx: CanvasRenderingContext2D, width: number, height: number) {
-  // Draw confidence interval (wider path underneath)
-  ctx.strokeStyle = "rgba(76, 201, 240, 0.2)" // migratewatch-cyan with opacity
-  ctx.lineWidth = 12
-  ctx.beginPath()
-  migrationRoute.forEach((point, index) => {
-    const x = point[0] * width
-    const y = point[1] * height
+function drawMigrationRoutes(ctx: CanvasRenderingContext2D, width: number, height: number, dataLayers: DataLayers) {
+  try {
+    // Migration route coordinates
+    const migrationPath = [
+      [0.2, 0.4], // Starting point (x, y as percentage of canvas)
+      [0.3, 0.45],
+      [0.4, 0.5],
+      [0.5, 0.55],
+      [0.6, 0.5],
+      [0.7, 0.45],
+      [0.8, 0.4], // End point
+    ]
 
-    if (index === 0) {
-      ctx.moveTo(x, y)
-    } else {
-      ctx.lineTo(x, y)
-    }
-  })
-  ctx.stroke()
+    // Draw each point as a dot
+    migrationPath.forEach((point) => {
+      const x = point[0] * width
+      const y = point[1] * height
 
-  // Draw main route
-  ctx.strokeStyle = "#4cc9f0" // migratewatch-cyan
-  ctx.lineWidth = 3
-  ctx.setLineDash([5, 3])
-  ctx.beginPath()
-  migrationRoute.forEach((point, index) => {
-    const x = point[0] * width
-    const y = point[1] * height
+      // Draw dot
+      ctx.beginPath()
+      ctx.arc(x, y, 6, 0, Math.PI * 2)
+      ctx.fillStyle = "#4cc9f0"
+      ctx.fill()
+      ctx.strokeStyle = "white"
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+    })
 
-    if (index === 0) {
-      ctx.moveTo(x, y)
-    } else {
-      ctx.lineTo(x, y)
-    }
-  })
-  ctx.stroke()
-  ctx.setLineDash([])
-
-  // Add confidence interval label
-  ctx.fillStyle = "rgba(23, 45, 79, 0.8)" // migratewatch-panel with opacity
-  ctx.fillRect(width * 0.4 - 60, height * 0.5 - 10, 120, 20)
-  ctx.fillStyle = "white"
-  ctx.font = "12px Arial"
-  ctx.textAlign = "center"
-  ctx.fillText("95% Confidence Interval", width * 0.4, height * 0.5 + 4)
+    // Add confidence interval label
+    ctx.fillStyle = "rgba(23, 45, 79, 0.8)" // migratewatch-panel with opacity
+    ctx.fillRect(width * 0.4 - 60, height * 0.5 - 10, 120, 20)
+    ctx.fillStyle = "white"
+    ctx.font = "12px Arial"
+    ctx.textAlign = "center"
+    ctx.fillText("Migration Points", width * 0.4, height * 0.5 + 4)
+  } catch (error) {
+    console.error("Error drawing migration routes:", error)
+  }
 }
 
 // Draw shipping lanes
@@ -406,13 +402,18 @@ function addLabels(ctx: CanvasRenderingContext2D, width: number, height: number)
 function createParticles(): Particle[] {
   const particles: Particle[] = []
 
-  for (let i = 0; i < 10; i++) {
+  // Create particles at random points
+  for (let i = 0; i < 5; i++) {
+    const randomPointIndex = Math.floor(Math.random() * 7) // 7 points in migrationPath
+    const x = (0.2 + randomPointIndex * 0.1) * window.innerWidth
+    const y = (0.4 + (Math.random() * 0.15 - 0.075)) * window.innerHeight
+
     particles.push({
-      x: 0,
-      y: 0,
+      x,
+      y,
       progress: Math.random(),
       speed: 0.001 + Math.random() * 0.002,
-      pathIndex: 0,
+      pathIndex: randomPointIndex,
     })
   }
 
@@ -421,7 +422,7 @@ function createParticles(): Particle[] {
 
 // Update and draw particles
 function updateParticles(particles: Particle[], ctx: CanvasRenderingContext2D, width: number, height: number) {
-  // Redraw the map (without clearing to create trail effect)
+  // Redraw the map
   drawMap(ctx, width, height, {
     migrationRoutes: true,
     shippingLanes: true,
@@ -429,36 +430,23 @@ function updateParticles(particles: Particle[], ctx: CanvasRenderingContext2D, w
     seaTemperature: false,
   })
 
-  // Update and draw particles
+  // Draw pulsing effect on some particles
   particles.forEach((particle) => {
-    // Update progress
-    particle.progress += particle.speed
-    if (particle.progress >= 1) {
-      particle.progress = 0
-    }
+    // Create pulsing effect
+    const time = Date.now() / 1000
+    const pulse = 1 + 0.3 * Math.sin(time * 3)
 
-    // Calculate position along the path
-    const pathLength = migrationRoute.length - 1
-    const segmentIndex = Math.floor(particle.progress * pathLength)
-    const segmentProgress = (particle.progress * pathLength) % 1
-
-    const start = migrationRoute[segmentIndex]
-    const end = migrationRoute[Math.min(segmentIndex + 1, migrationRoute.length - 1)]
-
-    particle.x = (start[0] + (end[0] - start[0]) * segmentProgress) * width
-    particle.y = (start[1] + (end[1] - start[1]) * segmentProgress) * height
-
-    // Draw particle
-    ctx.fillStyle = "#4cc9f0" // migratewatch-cyan
+    // Draw pulsing circle
+    ctx.fillStyle = "#4cc9f0"
     ctx.beginPath()
-    ctx.arc(particle.x, particle.y, 4, 0, Math.PI * 2)
+    ctx.arc(particle.x, particle.y, 8 * pulse, 0, Math.PI * 2)
     ctx.fill()
 
     // Draw white outline
     ctx.strokeStyle = "white"
-    ctx.lineWidth = 1
+    ctx.lineWidth = 2
     ctx.beginPath()
-    ctx.arc(particle.x, particle.y, 4, 0, Math.PI * 2)
+    ctx.arc(particle.x, particle.y, 8 * pulse, 0, Math.PI * 2)
     ctx.stroke()
   })
 }

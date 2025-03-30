@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { MigrationAnimation } from "./migration-animation"
 import type { SpeciesData } from "@/lib/types"
+import { fetchMigrationData } from "@/lib/api"
 
 interface MigrationRoutesProps {
   selectedSpecies: SpeciesData
@@ -11,14 +12,57 @@ interface MigrationRoutesProps {
 
 export function MigrationRoutes({ selectedSpecies, visible }: MigrationRoutesProps) {
   const [routes, setRoutes] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     // Get routes for the selected species
-    const speciesRoutes = getMigrationRoutes(selectedSpecies.id)
-    setRoutes(speciesRoutes)
+    const loadRoutes = async () => {
+      setLoading(true)
+
+      try {
+        // Map the selected species ID to a scientific name if possible
+        const scientificName = selectedSpecies.name
+
+        // Fetch data from API using the scientific name
+        const data = await fetchMigrationData(scientificName)
+
+        if (data.noDataFound) {
+          // No data found, set empty routes
+          setRoutes([])
+        } else if (data && data.coordinates && data.coordinates.length > 0) {
+          // Format the coordinates for our application
+          const apiRoute = {
+            id: `${selectedSpecies.id}-route1`,
+            name: `${selectedSpecies.name} - Migration Route`,
+            species: selectedSpecies.id,
+            coordinates: data.coordinates as [number, number][],
+          }
+
+          setRoutes([apiRoute])
+        } else {
+          // No valid data, set empty routes
+          setRoutes([])
+        }
+      } catch (error) {
+        console.error("Error loading migration data:", error)
+        setRoutes([])
+      }
+
+      setLoading(false)
+    }
+
+    loadRoutes()
   }, [selectedSpecies])
 
   if (!visible) return null
+
+  if (loading) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="bg-migratewatch-panel/80 p-2 rounded-md text-xs">Loading migration data...</div>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -28,67 +72,25 @@ export function MigrationRoutes({ selectedSpecies, visible }: MigrationRoutesPro
     </>
   )
 
-  // Helper function to get migration routes
-  function getMigrationRoutes(speciesId: string) {
-    // Migration routes data (with realistic coordinates)
-    const allRoutes = [
-      {
-        id: "narw-route1",
-        name: "North Atlantic Right Whale - Gulf of Maine to Florida",
-        species: "narw",
-        coordinates: [
-          [-67.0, 44.0], // Gulf of Maine
-          [-70.0, 42.5], // Massachusetts Bay
-          [-71.0, 41.0], // Rhode Island
-          [-74.0, 39.0], // New Jersey
-          [-75.5, 35.0], // North Carolina
-          [-80.0, 32.0], // South Carolina
-          [-81.5, 30.5], // Florida
-        ] as [number, number][],
-      },
-      {
-        id: "humpback-route1",
-        name: "Humpback Whale - Caribbean to Greenland",
-        species: "humpback",
-        coordinates: [
-          [-66.0, 18.0], // Caribbean
-          [-70.0, 25.0], // Bahamas
-          [-75.0, 35.0], // North Carolina
-          [-70.0, 40.0], // New England
-          [-60.0, 45.0], // Nova Scotia
-          [-50.0, 50.0], // Newfoundland
-          [-45.0, 60.0], // Greenland
-        ] as [number, number][],
-      },
-      {
-        id: "blue-route1",
-        name: "Blue Whale - California to Alaska",
-        species: "blue",
-        coordinates: [
-          [-120.0, 32.0], // Southern California
-          [-123.0, 37.0], // Central California
-          [-125.0, 42.0], // Oregon
-          [-125.0, 47.0], // Washington
-          [-132.0, 52.0], // British Columbia
-          [-140.0, 58.0], // Alaska
-        ] as [number, number][],
-      },
-      {
-        id: "loggerhead-route1",
-        name: "Loggerhead Sea Turtle - Florida to Mediterranean",
-        species: "loggerhead",
-        coordinates: [
-          [-80.0, 25.0], // Florida
-          [-75.0, 30.0], // Atlantic
-          [-60.0, 35.0], // Mid-Atlantic
-          [-40.0, 38.0], // Azores
-          [-10.0, 36.0], // Gibraltar
-          [5.0, 38.0], // Mediterranean
-        ] as [number, number][],
-      },
-    ]
+  // Helper function to get default migration routes
+  function getDefaultRoutes(speciesId: string) {
+    // Default migration routes data (with realistic coordinates)
+    const defaultRoute = {
+      id: `${speciesId}-route1`,
+      name: `${selectedSpecies.name} - Default Migration Route`,
+      species: speciesId,
+      coordinates: [
+        [-67.0, 44.0],
+        [-70.0, 42.5],
+        [-71.0, 41.0],
+        [-74.0, 39.0],
+        [-75.5, 35.0],
+        [-80.0, 32.0],
+        [-81.5, 30.5],
+      ] as [number, number][],
+    }
 
-    return speciesId === "all" ? allRoutes : allRoutes.filter((route) => route.species === speciesId)
+    return [defaultRoute]
   }
 }
 

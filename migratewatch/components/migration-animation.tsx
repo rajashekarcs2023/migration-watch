@@ -30,54 +30,36 @@ export function MigrationAnimation({ coordinates, color, speed }: MigrationAnima
       return [x, y]
     })
 
-    // Create particles
-    const particles: { x: number; y: number; progress: number; speed: number }[] = []
-    for (let i = 0; i < 20; i++) {
-      particles.push({
-        x: 0,
-        y: 0,
-        progress: Math.random(),
-        speed: 0.001 + Math.random() * 0.002 * speed,
-      })
-    }
-
     // Animation function
     function animate() {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-      // Draw the path
-      ctx.beginPath()
-      ctx.moveTo(points[0][0], points[0][1])
-      for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i][0], points[i][1])
-      }
-      ctx.strokeStyle = color
-      ctx.lineWidth = 2
-      ctx.setLineDash([5, 3])
-      ctx.stroke()
-
-      // Update and draw particles
-      particles.forEach((particle) => {
-        // Update progress
-        particle.progress += particle.speed
-        if (particle.progress > 1) particle.progress = 0
-
-        // Find position on the path
-        const segmentIndex = Math.floor(particle.progress * (points.length - 1))
-        const segmentProgress = (particle.progress * (points.length - 1)) % 1
-
-        const start = points[segmentIndex]
-        const end = points[Math.min(segmentIndex + 1, points.length - 1)]
-
-        particle.x = start[0] + (end[0] - start[0]) * segmentProgress
-        particle.y = start[1] + (end[1] - start[1]) * segmentProgress
-
-        // Draw particle
+      // Draw the points
+      points.forEach(([x, y]) => {
         ctx.beginPath()
-        ctx.arc(particle.x, particle.y, 3, 0, Math.PI * 2)
+        ctx.arc(x, y, 4, 0, Math.PI * 2)
         ctx.fillStyle = color
         ctx.fill()
+        ctx.strokeStyle = "white"
+        ctx.lineWidth = 1
+        ctx.stroke()
       })
+
+      // Add a few animated points
+      const numAnimated = Math.min(5, points.length)
+      for (let i = 0; i < numAnimated; i++) {
+        const idx = Math.floor(Math.random() * points.length)
+        const [x, y] = points[idx]
+
+        // Draw pulsing circle
+        const time = Date.now() / 1000
+        const pulse = 1 + 0.3 * Math.sin(time * 3 + i)
+
+        ctx.beginPath()
+        ctx.arc(x, y, 6 * pulse, 0, Math.PI * 2)
+        ctx.fillStyle = color + "80" // Add transparency
+        ctx.fill()
+      }
 
       requestAnimationFrame(animate)
     }

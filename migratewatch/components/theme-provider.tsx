@@ -7,6 +7,5 @@ import {
 } from 'next-themes'
 
 export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
-  // Force the dark theme to avoid hydration mismatch
-  return <NextThemesProvider forcedTheme="dark" {...props}>{children}</NextThemesProvider>
+  return <NextThemesProvider {...props}>{children}</NextThemesProvider>
 }

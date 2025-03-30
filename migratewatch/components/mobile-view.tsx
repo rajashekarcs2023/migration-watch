@@ -12,21 +12,27 @@ import type { SpeciesData, DataLayers } from "@/lib/types"
 interface MobileViewProps {
   selectedSpecies: SpeciesData
   setSelectedSpecies: (species: SpeciesData) => void
-  selectedMonths: string[]
-  setSelectedMonths: (months: string[]) => void
+  selectedYear: string
+  setSelectedYear: (year: string) => void
+  selectedMonth: string
+  setSelectedMonth: (month: string) => void
   dataLayers: DataLayers
   setDataLayers: (layers: DataLayers) => void
   children: React.ReactNode
+  onSelectionChange?: () => void
 }
 
 export function MobileView({
   selectedSpecies,
   setSelectedSpecies,
-  selectedMonths,
-  setSelectedMonths,
+  selectedYear,
+  setSelectedYear,
+  selectedMonth,
+  setSelectedMonth,
   dataLayers,
   setDataLayers,
   children,
+  onSelectionChange,
 }: MobileViewProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [analysisOpen, setAnalysisOpen] = useState(false)
@@ -64,25 +70,22 @@ export function MobileView({
           />
         </div>
         <div className="overflow-y-auto" style={{ maxHeight: "calc(70vh - 40px)" }}>
-          <AnalysisPanels selectedSpecies={selectedSpecies} selectedMonths={selectedMonths} />
+          <AnalysisPanels selectedSpecies={selectedSpecies} selectedYear={selectedYear} selectedMonth={selectedMonth} />
         </div>
       </div>
 
       {/* Sidebar drawer */}
-      <div
-        className={`absolute top-0 left-0 bottom-0 z-30 transition-transform duration-300 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <Sidebar
-          selectedSpecies={selectedSpecies}
-          setSelectedSpecies={setSelectedSpecies}
-          selectedMonths={selectedMonths}
-          setSelectedMonths={setSelectedMonths}
-          dataLayers={dataLayers}
-          setDataLayers={setDataLayers}
-        />
-      </div>
+      <Sidebar
+        selectedSpecies={selectedSpecies}
+        setSelectedSpecies={setSelectedSpecies}
+        selectedYear={selectedYear}
+        setSelectedYear={setSelectedYear}
+        selectedMonth={selectedMonth}
+        setSelectedMonth={setSelectedMonth}
+        dataLayers={dataLayers}
+        setDataLayers={setDataLayers}
+        onSelectionChange={onSelectionChange}
+      />
 
       {/* Backdrop */}
       {sidebarOpen && <div className="absolute inset-0 bg-black/50 z-20" onClick={() => setSidebarOpen(false)} />}

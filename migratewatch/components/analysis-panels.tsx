@@ -1,35 +1,162 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import type { SpeciesData } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
-import { ChevronDown, ChevronUp, BarChart3, Brain, AlertTriangle, Bot } from "lucide-react"
+import { ChevronDown, ChevronUp, BarChart3, Brain, AlertTriangle, Fish, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AIAssistant } from "./ai-assistant"
+import { useRouter } from "next/navigation"
+import {
+  generateConflictAnalysis,
+  generateAIInsights,
+  generateRouteOptimizations,
+  generateAlerts,
+} from "@/lib/analysis-api"
 
 interface AnalysisPanelsProps {
   selectedSpecies: SpeciesData
-  selectedMonths: string[]
+  selectedYear: string
+  selectedMonth: string
 }
 
-export function AnalysisPanels({ selectedSpecies, selectedMonths }: AnalysisPanelsProps) {
+export function AnalysisPanels({ selectedSpecies, selectedYear, selectedMonth }: AnalysisPanelsProps) {
   const [activePanel, setActivePanel] = useState<string | null>("conflict")
   const [showAssistant, setShowAssistant] = useState(false)
+  const [activeTab, setActiveTab] = useState<string | null>(null)
 
-  // Format the selected months for display
+  // State for dynamic data
+  const [conflictAnalysis, setConflictAnalysis] = useState<any>(null)
+  const [aiInsights, setAIInsights] = useState<any>(null)
+  const [routeOptimizations, setRouteOptimizations] = useState<any>(null)
+  const [alerts, setAlerts] = useState<string[]>([])
+
+  // Loading states
+  const [loadingConflict, setLoadingConflict] = useState(false)
+  const [loadingInsights, setLoadingInsights] = useState(false)
+  const [loadingRoutes, setLoadingRoutes] = useState(false)
+  const [loadingAlerts, setLoadingAlerts] = useState(false)
+
+  // Add error states to the component
+  const [conflictError, setConflictError] = useState<boolean>(false)
+  const [insightsError, setInsightsError] = useState<boolean>(false)
+  const [routesError, setRoutesError] = useState<boolean>(false)
+  const [alertsError, setAlertsError] = useState<boolean>(false)
+
+  const router = useRouter()
+
+  // Format the time period for display
   const formatPeriod = () => {
-    if (
-      selectedMonths.includes("Jan") &&
-      selectedMonths.includes("Feb") &&
-      selectedMonths.includes("Mar") &&
-      selectedMonths.includes("Nov") &&
-      selectedMonths.includes("Dec")
-    ) {
-      return "Winter Migration (Jan-Mar, Nov-Dec)"
+    if (selectedMonth === "all") {
+      return `All Year ${selectedYear}`
+    } else if (selectedMonth && selectedYear) {
+      const monthNames = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ]
+      const monthIndex = Number.parseInt(selectedMonth) - 1
+      return `${monthNames[monthIndex]} ${selectedYear}`
+    } else if (selectedYear) {
+      return `${selectedYear}`
+    } else {
+      return "Current Period"
     }
-    return selectedMonths.join(", ")
   }
+
+  // Fetch conflict analysis data when species, year, or month changes
+  const fetchConflictAnalysis = useCallback(async () => {
+    if (!selectedSpecies.name) return
+
+    setLoadingConflict(true)
+    setConflictError(false)
+    try {
+      const data = await generateConflictAnalysis(selectedSpecies.name, selectedYear, selectedMonth)
+      setConflictAnalysis(data)
+    } catch (error) {
+      console.error("Error fetching conflict analysis:", error)
+      setConflictError(true)
+    } finally {
+      setLoadingConflict(false)
+    }
+  }, [selectedSpecies.name, selectedYear, selectedMonth])
+
+  useEffect(() => {
+    fetchConflictAnalysis()
+  }, [fetchConflictAnalysis])
+
+  // Fetch AI insights when species, year, or month changes
+  const fetchAIInsights = useCallback(async () => {
+    if (!selectedSpecies.name) return
+
+    setLoadingInsights(true)
+    setInsightsError(false)
+    try {
+      const data = await generateAIInsights(selectedSpecies.name, selectedYear, selectedMonth)
+      setAIInsights(data)
+    } catch (error) {
+      console.error("Error fetching AI insights:", error)
+      setInsightsError(true)
+    } finally {
+      setLoadingInsights(false)
+    }
+  }, [selectedSpecies.name, selectedYear, selectedMonth])
+
+  useEffect(() => {
+    fetchAIInsights()
+  }, [fetchAIInsights])
+
+  // Fetch route optimizations when species, year, or month changes
+  const fetchRouteOptimizations = useCallback(async () => {
+    if (!selectedSpecies.name) return
+
+    setLoadingRoutes(true)
+    setRoutesError(false)
+    try {
+      const data = await generateRouteOptimizations(selectedSpecies.name, selectedYear, selectedMonth)
+      setRouteOptimizations(data)
+    } catch (error) {
+      console.error("Error fetching route optimizations:", error)
+      setRoutesError(true)
+    } finally {
+      setLoadingRoutes(false)
+    }
+  }, [selectedSpecies.name, selectedYear, selectedMonth])
+
+  useEffect(() => {
+    fetchRouteOptimizations()
+  }, [fetchRouteOptimizations])
+
+  // Fetch alerts when species, year, or month changes
+  const fetchAlerts = useCallback(async () => {
+    if (!selectedSpecies.name) return
+
+    setLoadingAlerts(true)
+    setAlertsError(false)
+    try {
+      const data = await generateAlerts(selectedSpecies.name, selectedYear, selectedMonth)
+      setAlerts(data)
+    } catch (error) {
+      console.error("Error fetching alerts:", error)
+      setAlertsError(true)
+    } finally {
+      setLoadingAlerts(false)
+    }
+  }, [selectedSpecies.name, selectedYear, selectedMonth])
+
+  useEffect(() => {
+    fetchAlerts()
+  }, [fetchAlerts])
 
   // Toggle panel expansion
   const togglePanel = (panel: string) => {
@@ -45,6 +172,29 @@ export function AnalysisPanels({ selectedSpecies, selectedMonths }: AnalysisPane
     setShowAssistant(!showAssistant)
   }
 
+  // Add a function to handle the species info button click
+  const handleSpeciesInfoClick = () => {
+    // Navigate to the species info page with the selected species as a query parameter
+    router.push(`/species-info?name=${encodeURIComponent(selectedSpecies.name)}`)
+  }
+
+  // Add a retry function for each panel
+  const retryConflictAnalysis = () => {
+    fetchConflictAnalysis()
+  }
+
+  const retryAIInsights = () => {
+    fetchAIInsights()
+  }
+
+  const retryRouteOptimizations = () => {
+    fetchRouteOptimizations()
+  }
+
+  const retryAlerts = () => {
+    fetchAlerts()
+  }
+
   // If assistant is active, show the assistant component
   if (showAssistant) {
     return <AIAssistant onClose={toggleAssistant} />
@@ -58,8 +208,8 @@ export function AnalysisPanels({ selectedSpecies, selectedMonths }: AnalysisPane
           className="w-full bg-migratewatch-cyan hover:bg-migratewatch-cyan/80 text-migratewatch-dark flex items-center justify-center"
           onClick={toggleAssistant}
         >
-          <Bot className="mr-2 h-4 w-4" />
-          Open AI Assistant
+          <Fish className="mr-2 h-4 w-4" />
+          OceanPulse Assistant
         </Button>
       </div>
 
@@ -89,30 +239,42 @@ export function AnalysisPanels({ selectedSpecies, selectedMonths }: AnalysisPane
             )}
           >
             <CardContent className="text-sm space-y-2">
-              <div className="flex justify-between">
-                <span className="text-gray-400">Species:</span>
-                <span>{selectedSpecies.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Period:</span>
-                <span>{formatPeriod()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">High-risk areas detected:</span>
-                <span className="text-migratewatch-magenta font-medium">3</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Collision risk reduction potential:</span>
-                <span className="text-migratewatch-cyan font-medium">78%</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Avg. shipping route deviation:</span>
-                <span>12.3 nautical miles</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Recommended action:</span>
-                <span className="text-migratewatch-green">Seasonal speed restriction</span>
-              </div>
+              {loadingConflict ? (
+                <div className="flex justify-center items-center py-4">
+                  <Loader2 className="h-5 w-5 text-migratewatch-cyan animate-spin" />
+                </div>
+              ) : conflictAnalysis ? (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Species:</span>
+                    <span>{conflictAnalysis.species}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Period:</span>
+                    <span>{formatPeriod()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">High-risk areas detected:</span>
+                    <span className="text-migratewatch-magenta font-medium">{conflictAnalysis.highRiskAreas}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Collision risk reduction potential:</span>
+                    <span className="text-migratewatch-cyan font-medium">
+                      {conflictAnalysis.collisionRiskReduction}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Avg. shipping route deviation:</span>
+                    <span>{conflictAnalysis.avgRouteDeviation} nautical miles</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Recommended action:</span>
+                    <span className="text-migratewatch-green">{conflictAnalysis.recommendedAction}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="text-gray-400 italic">No analysis data available</div>
+              )}
             </CardContent>
           </div>
         </Card>
@@ -137,24 +299,45 @@ export function AnalysisPanels({ selectedSpecies, selectedMonths }: AnalysisPane
           </CardHeader>
           <div className={cn("transition-all duration-300 ease-in-out", activePanel === "ai" ? "max-h-96" : "max-h-0")}>
             <CardContent>
-              <p className="text-sm italic text-gray-300">
-                "Current migration pattern shows higher concentration in the mid-Atlantic than previous years. Recommend
-                shifting southern shipping lanes 8nm north to reduce collision risk by 65%."
-              </p>
-              <div className="mt-4 text-xs text-gray-400">
-                <div className="flex justify-between mb-1">
-                  <span>Confidence:</span>
-                  <span>92%</span>
+              {loadingInsights ? (
+                <div className="flex justify-center items-center py-4">
+                  <Loader2 className="h-5 w-5 text-migratewatch-cyan animate-spin" />
                 </div>
-                <div className="flex justify-between mb-1">
-                  <span>Data sources:</span>
-                  <span>NOAA, AIS, Satellite</span>
+              ) : insightsError ? (
+                <div className="flex flex-col items-center py-2">
+                  <div className="text-migratewatch-magenta text-xs italic mb-2">
+                    Error loading insights. Using cached data.
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs border-migratewatch-cyan text-migratewatch-cyan hover:bg-migratewatch-cyan/20"
+                    onClick={retryAIInsights}
+                  >
+                    Retry
+                  </Button>
                 </div>
-                <div className="flex justify-between">
-                  <span>Last updated:</span>
-                  <span>March 29, 2025</span>
-                </div>
-              </div>
+              ) : aiInsights ? (
+                <>
+                  <p className="text-sm italic text-gray-300">"{aiInsights.insight}"</p>
+                  <div className="mt-4 text-xs text-gray-400">
+                    <div className="flex justify-between mb-1">
+                      <span>Confidence:</span>
+                      <span>{aiInsights.confidence}</span>
+                    </div>
+                    <div className="flex justify-between mb-1">
+                      <span>Data sources:</span>
+                      <span>{aiInsights.dataSources}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Last updated:</span>
+                      <span>{aiInsights.lastUpdated}</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-gray-400 italic">No insights available</div>
+              )}
             </CardContent>
           </div>
         </Card>
@@ -181,33 +364,46 @@ export function AnalysisPanels({ selectedSpecies, selectedMonths }: AnalysisPane
             className={cn("transition-all duration-300 ease-in-out", activePanel === "route" ? "max-h-96" : "max-h-0")}
           >
             <CardContent>
-              <div className="h-40">
-                <RouteOptimizationChart />
-              </div>
-              <div className="mt-2 text-xs text-gray-400">
-                <p>
-                  Shifting Boston shipping lane 8nm north reduces collision risk by 65% with minimal impact on shipping
-                  efficiency.
-                </p>
-              </div>
+              {loadingRoutes ? (
+                <div className="flex justify-center items-center py-4">
+                  <Loader2 className="h-5 w-5 text-migratewatch-cyan animate-spin" />
+                </div>
+              ) : routeOptimizations ? (
+                <>
+                  <div className="h-40">
+                    <RouteOptimizationChart data={routeOptimizations.routes} />
+                  </div>
+                  <div className="mt-2 text-xs text-gray-400">
+                    <p>{routeOptimizations.summary}</p>
+                  </div>
+                </>
+              ) : (
+                <div className="text-gray-400 italic">No route optimization data available</div>
+              )}
             </CardContent>
           </div>
         </Card>
 
         {/* Alerts Panel */}
-        <AlertsPanel />
+        <AlertsPanel alerts={alerts} loading={loadingAlerts} />
+
+        {/* Species Information Button */}
+        <Button
+          className="w-full mt-4 bg-migratewatch-cyan hover:bg-migratewatch-cyan/80 text-migratewatch-dark flex items-center justify-center"
+          onClick={handleSpeciesInfoClick}
+        >
+          <Fish className="mr-2 h-4 w-4" />
+          Species Information
+        </Button>
       </div>
     </div>
   )
 }
 
-function RouteOptimizationChart() {
-  const data = [
-    { name: "Current", risk: 100, color: "#f72585" },
-    { name: "Option 1", risk: 35, color: "#4cc9f0" },
-    { name: "Option 2", risk: 22, color: "#4cc9f0" },
-    { name: "Option 3", risk: 15, color: "#4cc9f0" },
-  ]
+function RouteOptimizationChart({ data }: { data: any[] }) {
+  if (!data || data.length === 0) {
+    return <div className="text-gray-400 italic">No route data available</div>
+  }
 
   const maxRisk = Math.max(...data.map((d) => d.risk))
 
@@ -239,14 +435,8 @@ function RouteOptimizationChart() {
   )
 }
 
-function AlertsPanel() {
+function AlertsPanel({ alerts, loading }: { alerts: string[]; loading: boolean }) {
   const [isExpanded, setIsExpanded] = useState(false)
-
-  const alerts = [
-    "Critical conflict detected: High concentration of right whales intersecting with Boston shipping lane",
-    "Unusual migration pattern detected in sector C4",
-    "5 vessels entering protected migration corridor",
-  ]
 
   return (
     <Card className="bg-migratewatch-panel/90 border-migratewatch-panel shadow-none overflow-hidden">
@@ -269,16 +459,24 @@ function AlertsPanel() {
           )}
         </span>
       </CardHeader>
-      <div className={cn("transition-all duration-300 ease-in-out", isExpanded ? "max-h-40" : "max-h-0")}>
+      <div className={cn("transition-all duration-300 ease-in-out", isExpanded ? "max-h-60" : "max-h-0")}>
         <CardContent className="text-sm">
-          <ul className="space-y-2">
-            {alerts.map((alert, index) => (
-              <li key={index} className="text-xs flex items-start space-x-2">
-                <span className="inline-block w-2 h-2 rounded-full bg-migratewatch-magenta mt-1 flex-shrink-0" />
-                <span>{alert}</span>
-              </li>
-            ))}
-          </ul>
+          {loading ? (
+            <div className="flex justify-center items-center py-4">
+              <Loader2 className="h-5 w-5 text-migratewatch-cyan animate-spin" />
+            </div>
+          ) : alerts && alerts.length > 0 ? (
+            <ul className="space-y-2">
+              {alerts.map((alert, index) => (
+                <li key={index} className="text-xs flex items-start space-x-2">
+                  <span className="inline-block w-2 h-2 rounded-full bg-migratewatch-magenta mt-1 flex-shrink-0" />
+                  <span>{alert}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="text-gray-400 italic">No alerts at this time</div>
+          )}
         </CardContent>
       </div>
     </Card>

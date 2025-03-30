@@ -1,55 +1,19 @@
-import { useState, useEffect } from 'react';
+"use client"
 
-/**
- * Hook to detect if the current device is mobile
- * @param breakpoint Width threshold for mobile detection (default: 768px)
- * @returns Boolean indicating if the device is mobile
- */
-export function useMobile(breakpoint: number = 768): boolean {
-  const [isMobile, setIsMobile] = useState<boolean>(false);
+import { useState, useEffect } from "react"
+
+export const useMediaQuery = (query: string): boolean => {
+  const [matches, setMatches] = useState(false)
 
   useEffect(() => {
-    // Initial check
-    checkIfMobile();
+    const mediaQuery = window.matchMedia(query)
+    setMatches(mediaQuery.matches)
 
-    // Add event listener for window resize
-    window.addEventListener('resize', checkIfMobile);
+    const listener = () => setMatches(mediaQuery.matches)
+    window.addEventListener("resize", listener)
+    return () => window.removeEventListener("resize", listener)
+  }, [query])
 
-    // Cleanup event listener
-    return () => window.removeEventListener('resize', checkIfMobile);
-  }, [breakpoint]);
-
-  /**
-   * Check if the current device is mobile based on screen width
-   */
-  const checkIfMobile = () => {
-    setIsMobile(window.innerWidth < breakpoint);
-  };
-
-  return isMobile;
+  return matches
 }
 
-/**
- * Hook to detect if the user agent is a mobile device
- * @returns Boolean indicating if the user agent is a mobile device
- */
-export function useMobileUserAgent(): boolean {
-  const [isMobileUA, setIsMobileUA] = useState<boolean>(false);
-
-  useEffect(() => {
-    // Check if running in browser
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    // Check if user agent indicates a mobile device
-    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
-    const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
-    
-    setIsMobileUA(mobileRegex.test(userAgent));
-  }, []);
-
-  return isMobileUA;
-}
-
-export default useMobile;

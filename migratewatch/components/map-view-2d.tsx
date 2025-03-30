@@ -1,37 +1,32 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useMobile } from "../hooks/use-mobile"
 import type { SpeciesData, TimelineData, DataLayers } from "@/lib/types"
-import { MapInfoCard } from "./map-info-card"
-import { MapLabel } from "./map-label"
-import { LatLngExpression, CircleMarker, Marker } from 'leaflet';
-
-// Add type declaration for window.L
-declare global {
-  interface Window {
-    L: typeof import('leaflet');
-  }
-}
+import { fetchMigrationData, fetchShippingLaneData } from "@/lib/api"
 
 interface MapView2DProps {
   selectedSpecies: SpeciesData
+  selectedYear: string
+  selectedMonth: string
   dataLayers: DataLayers
-  timelineData?: TimelineData
-  onError?: (error: string) => void
+  timelineData: TimelineData
+  onError?: () => void
 }
 
-// Define a type for the map styles
-type MapStyle = "watercolor" | "terrain" | "satellite" | "dark" | "voyager"
-
-export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }: MapView2DProps) {
-  const [scriptLoaded, setScriptLoaded] = useState(false)
-  const [mapLoaded, setMapLoaded] = useState(false)
+export function MapView2D({
+  selectedSpecies,
+  selectedYear,
+  selectedMonth,
+  dataLayers,
+  timelineData,
+  onError,
+}: MapView2DProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
-  const isMobile = useMobile()
+  const [mapLoaded, setMapLoaded] = useState(false)
+  const [scriptLoaded, setScriptLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [mapStyle, setMapStyle] = useState<MapStyle>("watercolor") // Now using the MapStyle type
+  const [mapStyle, setMapStyle] = useState<string>("dark") // Default to dark style
 
   // Add this code near the beginning of the component to manage info cards and labels
   const [activeInfoCard, setActiveInfoCard] = useState<{
@@ -50,6 +45,68 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
     }[]
   >([])
 
+  // Inside the MapView2D component, add this state and effect
+  const [apiMigrationPath, setApiMigrationPath] = useState<[number, number][]>([])
+  const [apiShippingLanePath, setApiShippingLanePath] = useState<[number, number][]>([])
+
+  // Add this useEffect near the beginning of the component
+  useEffect(() => {
+    const loadMigrationData = async () => {
+      try {
+        const data = await fetchMigrationData(selectedSpecies.name, selectedYear, selectedMonth)
+
+        if (data.noDataFound) {
+          // No data found, set empty array
+          setApiMigrationPath([])
+        } else if (data && data.coordinates && data.coordinates.length > 0) {
+          // Convert coordinates to the format expected by Leaflet [lat, lng]
+          const formattedCoordinates = data.coordinates.map((coord: [number, number]) => [coord[1], coord[0]])
+          setApiMigrationPath(formattedCoordinates)
+        } else {
+          // Fallback to empty array
+          setApiMigrationPath([])
+        }
+      } catch (error) {
+        console.error("Error fetching migration data:", error)
+        setApiMigrationPath([])
+      }
+    }
+
+    loadMigrationData()
+  }, [selectedSpecies, selectedYear, selectedMonth])
+
+  // Add this useEffect to fetch shipping lane data
+  useEffect(() => {
+    const loadShippingLaneData = async () => {
+      if (!dataLayers.shippingLanes) {
+        // Don't fetch if shipping lanes are not enabled
+        setApiShippingLanePath([])
+        return
+      }
+
+      try {
+        const data = await fetchShippingLaneData(selectedYear, selectedMonth)
+
+        if (data.noDataFound) {
+          // No data found, set empty array
+          setApiShippingLanePath([])
+        } else if (data && data.coordinates && data.coordinates.length > 0) {
+          // Convert coordinates to the format expected by Leaflet [lat, lng]
+          const formattedCoordinates = data.coordinates.map((coord: [number, number]) => [coord[1], coord[0]])
+          setApiShippingLanePath(formattedCoordinates)
+        } else {
+          // Fallback to empty array
+          setApiShippingLanePath([])
+        }
+      } catch (error) {
+        console.error("Error fetching shipping lane data:", error)
+        setApiShippingLanePath([])
+      }
+    }
+
+    loadShippingLaneData()
+  }, [selectedYear, selectedMonth, dataLayers.shippingLanes])
+
   // Initialize Leaflet map
   useEffect(() => {
     if (!scriptLoaded || !mapContainerRef.current) {
@@ -61,7 +118,7 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
     if (typeof window === "undefined" || !window.L) {
       console.error("Leaflet is not available")
       setLoadError("Leaflet is not available. Please check the script loading.")
-      if (onError) onError("Leaflet is not available. Please check the script loading.")
+      if (onError) onError()
       return
     }
 
@@ -70,8 +127,8 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
     try {
       // Create a map instance
       const map = window.L.map(mapContainerRef.current, {
-        center: [40.0, -70.0], // North Atlantic
-        zoom: 5,
+        center: [-5.0, 15.0], // Updated to center on your shipping lanes
+        zoom: 4, // Adjusted zoom level
         minZoom: 3,
         maxZoom: 10,
         zoomControl: false, // We'll add custom zoom controls
@@ -81,25 +138,7 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
       console.log("Map created successfully")
 
       // Add beautiful base map layers
-      const baseMaps: { [key in MapStyle]: any } = {
-        // Stamen Watercolor - artistic watercolor style
-        watercolor: window.L.tileLayer("https://stamen-tiles-{s}.a.ssl.fastly.net/watercolor/{z}/{x}/{y}.jpg", {
-          attribution:
-            'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-          subdomains: "abcd",
-          minZoom: 1,
-          maxZoom: 16,
-        }),
-
-        // Stamen Terrain - beautiful terrain with hillshading
-        terrain: window.L.tileLayer("https://stamen-tiles-{s}.a.ssl.fastly.net/terrain/{z}/{x}/{y}{r}.png", {
-          attribution:
-            'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-          subdomains: "abcd",
-          minZoom: 0,
-          maxZoom: 18,
-        }),
-
+      const baseMaps = {
         // ESRI World Imagery - satellite imagery
         satellite: window.L.tileLayer(
           "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -138,14 +177,13 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
       }
 
       // Simple ocean polygon (this would be more detailed in a real app)
-      const oceanBounds: LatLngExpression[][] = [
+      const oceanBounds = [
         [
           [85, -180],
           [85, 180],
           [-85, 180],
           [-85, -180],
-          [85, -180]
-        ]
+        ],
       ]
 
       const ocean = window.L.polygon(oceanBounds, oceanStyle).addTo(map)
@@ -170,10 +208,8 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
           container.appendChild(title)
 
           const styles = [
-            { id: "watercolor", name: "Watercolor" },
-            { id: "terrain", name: "Terrain" },
-            { id: "satellite", name: "Satellite" },
             { id: "dark", name: "Dark" },
+            { id: "satellite", name: "Satellite" },
             { id: "voyager", name: "Voyager" },
           ]
 
@@ -200,8 +236,8 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
               })
 
               // Add the selected base layer
-              baseMaps[style.id as MapStyle].addTo(map)
-              setMapStyle(style.id as MapStyle)
+              baseMaps[style.id].addTo(map)
+              setMapStyle(style.id)
 
               // Update button styles
               Array.from(container.getElementsByTagName("button")).forEach((b: any) => {
@@ -212,12 +248,13 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
               btn.style.color = "white"
 
               // Adjust ocean opacity based on style
-              if (style.id === "dark" || style.id === "satellite") {
+              if (style.id === "satellite") {
                 ocean.setStyle({ fillOpacity: 0.2, fillColor: "#4cc9f0" })
-              } else if (style.id === "watercolor") {
-                ocean.setStyle({ fillOpacity: 0.05, fillColor: "#4cc9f0" })
-              } else {
+              } else if (style.id === "voyager") {
                 ocean.setStyle({ fillOpacity: 0.1, fillColor: "#4cc9f0" })
+              } else {
+                // dark style
+                ocean.setStyle({ fillOpacity: 0.15, fillColor: "#4cc9f0" })
               }
             }
 
@@ -241,64 +278,56 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
         if (dataLayers.migrationRoutes) {
           addMigrationRoutes(map)
         }
-      } catch (e: any) {
+      } catch (e) {
         console.error("Error adding migration routes:", e)
-        if (onError) onError("Error adding migration routes: " + e.message)
       }
 
       try {
         if (dataLayers.shippingLanes) {
           addShippingLanes(map)
         }
-      } catch (e: any) {
+      } catch (e) {
         console.error("Error adding shipping lanes:", e)
-        if (onError) onError("Error adding shipping lanes: " + e.message)
       }
 
       try {
         if (dataLayers.conflictZones) {
           addConflictZones(map)
         }
-      } catch (e: any) {
+      } catch (e) {
         console.error("Error adding conflict zones:", e)
-        if (onError) onError("Error adding conflict zones: " + e.message)
       }
 
       try {
         if (dataLayers.seaTemperature) {
           addSeaTemperature(map)
         }
-      } catch (e: any) {
+      } catch (e) {
         console.error("Error adding sea temperature:", e)
-        if (onError) onError("Error adding sea temperature: " + e.message)
       }
 
       try {
         addProtectedAreas(map)
-      } catch (e: any) {
+      } catch (e) {
         console.error("Error adding protected areas:", e)
-        if (onError) onError("Error adding protected areas: " + e.message)
       }
 
       try {
         addAlternativeRoutes(map)
-      } catch (e: any) {
+      } catch (e) {
         console.error("Error adding alternative routes:", e)
-        if (onError) onError("Error adding alternative routes: " + e.message)
       }
 
       try {
         addAnimalPresenceHeatmap(map, selectedSpecies)
-      } catch (e: any) {
+      } catch (e) {
         console.error("Error adding animal presence heatmap:", e)
-        if (onError) onError("Error adding animal presence heatmap: " + e.message)
       }
 
       try {
         addRiskAssessment(map)
-      } catch (e: any) {
+      } catch (e) {
         console.error("Error adding risk assessment:", e)
-        if (onError) onError("Error adding risk assessment: " + e.message)
       }
 
       // Add a new function to create an information control panel that organizes all overlays
@@ -313,57 +342,57 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
             onAdd: (map: any) => {
               const div = window.L.DomUtil.create("div", "info-control")
               div.innerHTML = `
-          <div class="bg-migratewatch-panel/90 p-3 rounded-lg shadow-lg border border-migratewatch-panel">
-            <div class="font-bold mb-3 text-white text-sm flex items-center">
-              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" class="mr-2 text-migratewatch-cyan">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <line x1="16" y1="6" x2="22" y2="12"></line>
-                <line x1="9" y1="21" x2="9" y2="9"></line>
-              </svg>
-              Map Layers
-            </div>
-            <div class="flex flex-col space-y-2">
-              <label class="flex items-center space-x-2 text-xs bg-migratewatch-darker/50 p-2 rounded hover:bg-migratewatch-darker transition-colors">
-                <input type="checkbox" class="toggle-overlay accent-migratewatch-cyan w-3.5 h-3.5" data-layer="risk" checked>
-                <span class="flex items-center">
-                  <span class="w-2 h-2 rounded-full bg-migratewatch-magenta mr-1.5"></span>
-                  Risk Assessment
-                </span>
-              </label>
-              <label class="flex items-center space-x-2 text-xs bg-migratewatch-darker/50 p-2 rounded hover:bg-migratewatch-darker transition-colors">
-                <input type="checkbox" class="toggle-overlay accent-migratewatch-cyan w-3.5 h-3.5" data-layer="routes" checked>
-                <span class="flex items-center">
-                  <span class="w-3 h-0.5 bg-migratewatch-cyan mr-1.5"></span>
-                  Migration Routes
-                </span>
-              </label>
-              <label class="flex items-center space-x-2 text-xs bg-migratewatch-darker/50 p-2 rounded hover:bg-migratewatch-darker transition-colors">
-                <input type="checkbox" class="toggle-overlay accent-migratewatch-cyan w-3.5 h-3.5" data-layer="shipping" checked>
-                <span class="flex items-center">
-                  <span class="w-3 h-0.5 bg-migratewatch-orange mr-1.5"></span>
-                  Shipping Lanes
-                </span>
-              </label>
-              <label class="flex items-center space-x-2 text-xs bg-migratewatch-darker/50 p-2 rounded hover:bg-migratewatch-darker transition-colors">
-                <input type="checkbox" class="toggle-overlay accent-migratewatch-cyan w-3.5 h-3.5" data-layer="protected" checked>
-                <span class="flex items-center">
-                  <span class="w-3 h-0.5 bg-migratewatch-green mr-1.5"></span>
-                  Protected Areas
-                </span>
-              </label>
-              <label class="flex items-center space-x-2 text-xs bg-migratewatch-darker/50 p-2 rounded hover:bg-migratewatch-darker transition-colors">
-                <input type="checkbox" class="toggle-overlay accent-migratewatch-cyan w-3.5 h-3.5" data-layer="labels" checked>
-                <span class="flex items-center">
-                  <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" class="mr-1.5">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                    <polyline points="16 6 22 12 16 18"></polyline>
-                  </svg>
-                  Information Labels
-                </span>
-              </label>
-            </div>
+        <div class="bg-migratewatch-panel/90 p-3 rounded-lg shadow-lg border border-migratewatch-panel">
+          <div class="font-bold mb-3 text-white text-sm flex items-center">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" class="mr-2 text-migratewatch-cyan">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="3" y1="9" x2="21" y2="9"></line>
+              <line x1="9" y1="21" x2="9" y2="9"></line>
+            </svg>
+            Map Layers
           </div>
-        `
+          <div class="flex flex-col space-y-2">
+            <label class="flex items-center space-x-2 text-xs bg-migratewatch-darker/50 p-2 rounded hover:bg-migratewatch-darker transition-colors">
+              <input type="checkbox" class="toggle-overlay accent-migratewatch-cyan w-3.5 h-3.5" data-layer="risk" checked>
+              <span class="flex items-center">
+                <span class="w-2 h-2 rounded-full bg-migratewatch-magenta mr-1.5"></span>
+                Risk Assessment
+              </span>
+            </label>
+            <label class="flex items-center space-x-2 text-xs bg-migratewatch-darker/50 p-2 rounded hover:bg-migratewatch-darker transition-colors">
+              <input type="checkbox" class="toggle-overlay accent-migratewatch-cyan w-3.5 h-3.5" data-layer="routes" checked>
+              <span class="flex items-center">
+                <span class="w-3 h-3 rounded-full bg-migratewatch-cyan mr-1.5"></span>
+                Migration Points
+              </span>
+            </label>
+            <label class="flex items-center space-x-2 text-xs bg-migratewatch-darker/50 p-2 rounded hover:bg-migratewatch-darker transition-colors">
+              <input type="checkbox" class="toggle-overlay accent-migratewatch-cyan w-3.5 h-3.5" data-layer="shipping" checked>
+              <span class="flex items-center">
+                <span class="w-3 h-0.5 bg-migratewatch-orange mr-1.5"></span>
+                Shipping Lanes
+              </span>
+            </label>
+            <label class="flex items-center space-x-2 text-xs bg-migratewatch-darker/50 p-2 rounded hover:bg-migratewatch-darker transition-colors">
+              <input type="checkbox" class="toggle-overlay accent-migratewatch-cyan w-3.5 h-3.5" data-layer="protected" checked>
+              <span class="flex items-center">
+                <span class="w-3 h-0.5 bg-migratewatch-green mr-1.5"></span>
+                Protected Areas
+              </span>
+            </label>
+            <label class="flex items-center space-x-2 text-xs bg-migratewatch-darker/50 p-2 rounded hover:bg-migratewatch-darker transition-colors">
+              <input type="checkbox" class="toggle-overlay accent-migratewatch-cyan w-3.5 h-3.5" data-layer="labels" checked>
+              <span class="flex items-center">
+                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" class="mr-1.5">
+                  <rect x="3" y="5" width="18" height="14" rx="2" ry="2"></rect>
+                  <polyline points="3 7 12 13 21 7"></polyline>
+                </svg>
+                Information Labels
+              </span>
+            </label>
+          </div>
+        </div>
+      `
 
               // Prevent map clicks from propagating through the control
               window.L.DomEvent.disableClickPropagation(div)
@@ -389,9 +418,8 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
           })
 
           new InfoControl().addTo(map)
-        } catch (error: any) {
+        } catch (error) {
           console.error("Error adding info control panel:", error)
-          if (onError) onError("Error adding info control panel: " + error.message)
         }
       }
 
@@ -403,9 +431,8 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
             position: "bottomleft",
           })
           .addTo(map)
-      } catch (e: any) {
+      } catch (e) {
         console.error("Error adding scale control:", e)
-        if (onError) onError("Error adding scale control: " + e.message)
       }
 
       // Add attribution in a custom position
@@ -416,9 +443,8 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
           })
           .addTo(map)
           .setPrefix("MigrateWatch | Leaflet")
-      } catch (e: any) {
+      } catch (e) {
         console.error("Error adding attribution control:", e)
-        if (onError) onError("Error adding attribution control: " + e.message)
       }
 
       // Call the new function in the main useEffect after all other layers are added
@@ -442,12 +468,22 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
           map.remove()
         }
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to initialize Leaflet map:", error)
       setLoadError(error instanceof Error ? error.message : "Unknown error initializing map")
-      if (onError) onError("Failed to initialize Leaflet map: " + error.message)
+      if (onError) onError()
     }
-  }, [scriptLoaded, dataLayers, selectedSpecies, onError, mapStyle])
+  }, [
+    scriptLoaded,
+    dataLayers,
+    selectedSpecies,
+    selectedYear,
+    selectedMonth,
+    onError,
+    mapStyle,
+    apiMigrationPath,
+    apiShippingLanePath,
+  ])
 
   // Add a timeout to trigger fallback if map doesn't load
   useEffect(() => {
@@ -455,271 +491,232 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
       if (!mapLoaded && !loadError) {
         console.error("Map loading timeout reached")
         setLoadError("Map loading timeout reached")
-        if (onError) onError("Map loading timeout reached")
+        if (onError) onError()
       }
     }, 5000)
 
     return () => clearTimeout(timeout)
   }, [mapLoaded, loadError, onError])
 
-  // Add migration routes with confidence intervals
+  // Then modify the addMigrationRoutes function to use the API data
   function addMigrationRoutes(map: any) {
     try {
-      // Main migration route
-      const migrationPath: LatLngExpression[] = [
-        [44.0, -67.0],
-        [42.5, -70.0],
-        [41.0, -71.0],
-        [39.0, -74.0],
-        [35.0, -75.5],
-        [32.0, -80.0],
-        [30.5, -81.5],
-      ]
-
-      // Create the main route with a glowing effect
-      const mainRoute = window.L.polyline(migrationPath, {
-        color: "#4cc9f0",
-        weight: 4,
-        opacity: 0.8,
-        dashArray: "10, 5",
-        className: "animated-dash routes-element", // Added routes-element class
-      }).addTo(map)
-
-      // Add confidence interval (wider path underneath)
-      const confidenceInterval = window.L.polyline(migrationPath, {
-        color: "#4cc9f0",
-        weight: 12,
-        opacity: 0.2,
-        className: "routes-element", // Added routes-element class
-      }).addTo(map)
-
-      // Add confidence interval label with better styling
-      window.L.marker([41.0, -71.0], {
-        icon: window.L.divIcon({
-          className: "confidence-label routes-element labels-element", // Added classes for toggling
-          html: `
-          <div class="bg-migratewatch-panel/90 text-xs p-2 rounded-lg shadow-lg border border-migratewatch-cyan/30">
-            <div class="font-bold text-migratewatch-cyan">95% Confidence Interval</div>
-          </div>
-        `,
-          iconSize: [150, 40],
-          iconAnchor: [75, 20], // Center the label horizontally
-        }),
-      }).addTo(map)
-
-      // Define a type for the animated markers
-      interface AnimatedMarker {
-        marker: CircleMarker;
-        speed: number;
-        progress: number;
+      // Don't add any routes if no data found or empty coordinates
+      if (apiMigrationPath.length === 0) {
+        console.log("No migration data to display in 2D map")
+        return
       }
 
-      // Add multiple animated markers along the route for a school effect
-      const animatedMarkers: AnimatedMarker[] = [];
-      for (let i = 0; i < 5; i++) {
-        const marker = window.L.circleMarker(migrationPath[0], {
-          radius: 5,
+      // Use API data
+      const migrationPath = apiMigrationPath
+
+      // Add each coordinate as a separate circle marker
+      migrationPath.forEach((coord) => {
+        window.L.circleMarker(coord, {
+          radius: 6,
           color: "#ffffff",
           fillColor: "#4cc9f0",
           fillOpacity: 1,
           weight: 2,
-          className: "pulse-marker routes-element", // Added routes-element class
+          className: "routes-element", // Added routes-element class
+        }).addTo(map)
+      })
+
+      // Add a few animated markers for visual interest
+      const animatedMarkers = []
+      const numAnimatedMarkers = Math.min(5, migrationPath.length)
+      const animatedIndices = []
+
+      // Select random points to animate
+      while (animatedIndices.length < numAnimatedMarkers) {
+        const idx = Math.floor(Math.random() * migrationPath.length)
+        if (!animatedIndices.includes(idx)) {
+          animatedIndices.push(idx)
+        }
+      }
+
+      // Create animated markers
+      animatedIndices.forEach((idx) => {
+        const marker = window.L.circleMarker(migrationPath[idx], {
+          radius: 8,
+          color: "#ffffff",
+          fillColor: "#4cc9f0",
+          fillOpacity: 0.8,
+          weight: 2,
+          className: "pulse-marker routes-element", // Added animation class
         }).addTo(map)
 
-        animatedMarkers.push({
-          marker,
-          speed: 0.0005 + Math.random() * 0.0005, // Slightly different speeds
-          progress: i * 0.15, // Spread them out
-        })
-      }
-
-      // Animation function
-      const animateMarkers = () => {
-        if (!map) return
-
-        animatedMarkers.forEach((item) => {
-          // Calculate position along the path
-          const totalSteps = 1
-          const pathLength = migrationPath.length - 1
-
-          // Update progress
-          item.progress += item.speed
-          if (item.progress > 1) {
-            item.progress = 0
-          }
-
-          const segmentIndex = Math.floor(item.progress * pathLength)
-          const segmentProgress = (item.progress * pathLength) % 1
-
-          const start = migrationPath[segmentIndex]
-          const end = migrationPath[Math.min(segmentIndex + 1, migrationPath.length - 1)]
-
-          let startLat = 0, startLng = 0, endLat = 0, endLng = 0;
-          
-          if (Array.isArray(start)) {
-            [startLat, startLng] = start as [number, number];
-          }
-          
-          if (Array.isArray(end)) {
-            [endLat, endLng] = end as [number, number];
-          }
-          
-          const lat = startLat + (endLat - startLat) * segmentProgress
-          const lng = startLng + (endLng - startLng) * segmentProgress
-
-          // Update marker position
-          item.marker.setLatLng([lat, lng])
-        })
-
-        // Continue animation
-        requestAnimationFrame(animateMarkers)
-      }
-
-      // Start animation
-      animateMarkers()
+        animatedMarkers.push(marker)
+      })
 
       // Add density information with better styling
-      window.L.marker([39.0, -74.0], {
-        icon: window.L.divIcon({
-          className: "density-info routes-element labels-element", // Added classes for toggling
-          html: `
+      if (migrationPath.length > 0) {
+        window.L.marker([migrationPath[0][0], migrationPath[0][1]], {
+          icon: window.L.divIcon({
+            className: "density-info routes-element labels-element", // Added classes for toggling
+            html: `
           <div class="bg-migratewatch-cyan text-black text-xs font-bold p-2 rounded-lg shadow-lg">
             <div class="flex items-center">
-              <div class="w-3 h-3 rounded-full bg-migratewatch-cyan mr-1.5 animate-pulse"></div>
+              <div class="w-3 h-3 rounded-full bg-migratewatch-cyan mr-1 animate-pulse"></div>
               High Density Area
             </div>
           </div>
         `,
-          iconSize: [120, 30],
-        }),
-      }).addTo(map)
+            iconSize: [120, 30],
+          }),
+        }).addTo(map)
+      }
 
       // Add whale icons at key points
       const whaleIcon = window.L.divIcon({
         className: "whale-icon routes-element", // Added routes-element class
         html: `
-        <div class="relative">
-          <svg viewBox="0 0 24 24" width="24" height="24" stroke="#4cc9f0" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" class="animate-pulse">
-            <path d="M3 18c2.5 0 5-1.7 5-5s-2.5-5-5-5 5 10 5 10M19 18c-2.5 0-5-1.7-5-5s2.5-5 5-5-5 10-5 10M3 18h16"></path>
-          </svg>
-          <div class="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-migratewatch-cyan animate-ping"></div>
-        </div>
-      `,
+      <div class="relative">
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="#4cc9f0" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" class="animate-pulse">
+          <path d="M3 18c2.5 0 5-1.7 5-5s-2.5-5-5-5 5 10 5 10M19 18c-2.5 0-5-1.7-5-5s2.5-5 5-5-5 10-5 10M3 18h16"></path>
+        </svg>
+        <div class="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-migratewatch-cyan animate-ping"></div>
+      </div>
+    `,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
       })
 
       // Add whales at various points along the route
-      const whalePositions: LatLngExpression[] = [
-        [43.0, -68.0],
-        [41.5, -70.5],
-        [38.0, -74.5],
-        [33.0, -78.0],
-      ]
+      if (migrationPath.length >= 4) {
+        const whalePositions = [
+          migrationPath[0],
+          migrationPath[Math.floor(migrationPath.length / 3)],
+          migrationPath[Math.floor((migrationPath.length * 2) / 3)],
+          migrationPath[migrationPath.length - 1],
+        ]
 
-      whalePositions.forEach((pos) => {
-        window.L.marker(pos, { icon: whaleIcon }).addTo(map)
-      })
-    } catch (error: any) {
+        whalePositions.forEach((pos) => {
+          window.L.marker(pos, { icon: whaleIcon }).addTo(map)
+        })
+      }
+    } catch (error) {
       console.error("Error adding migration routes:", error)
-      if (onError) onError("Error adding migration routes: " + error.message)
     }
   }
 
-  // Add shipping lanes with vessel information
+  // Update the shipping lanes function to use the API data
   function addShippingLanes(map: any) {
     try {
-      // Shipping lane coordinates
-      const shippingPath: LatLngExpression[] = [
-        [40.7, -74.0],
-        [42.0, -60.0],
-        [45.0, -40.0],
-        [48.0, -20.0],
-        [50.0, -5.0],
-        [51.5, 0.0],
-      ]
+      // Don't add any shipping lanes if no data found or empty coordinates
+      if (apiShippingLanePath.length === 0) {
+        console.log("No shipping lane data to display in 2D map")
+        return
+      }
 
-      // Create the shipping lane with gradient effect
-      const shippingLane = window.L.polyline(shippingPath, {
+      // Create the shipping lane using API data
+      const shippingLane = window.L.polyline(apiShippingLanePath, {
         color: "#ff9e00",
         weight: 3,
         opacity: 0.8,
         dashArray: "8, 4",
-        className: "shipping-lane shipping-element", // Added shipping-element class
+        className: "shipping-lane shipping-element",
+      }).addTo(map)
+
+      // Add tooltip with information
+      shippingLane.bindTooltip("Shipping Lane", {
+        permanent: false,
+        direction: "top",
+        className: "shipping-lane-tooltip",
+      })
+
+      // Calculate the midpoint of the line for label placement
+      const midIndex = Math.floor(apiShippingLanePath.length / 2)
+      const midPoint = apiShippingLanePath[midIndex]
+
+      // Add a label for the shipping lane
+      window.L.marker(midPoint, {
+        icon: window.L.divIcon({
+          className: "custom-lane-label shipping-element labels-element",
+          html: `
+          <div class="bg-migratewatch-orange text-black text-xs font-bold p-2 rounded-lg shadow-lg">
+            <div class="flex items-center">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" class="mr-1">
+                <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path>
+                <path d="M4 6v12c0 1.1.9 2 2 2h14v-4"></path>
+                <path d="M18 12a2 2 0 0 0 0 4h4v-4h-4z"></path>
+              </svg>
+              Shipping Lane
+            </div>
+          </div>
+        `,
+          iconSize: [200, 30],
+        }),
       }).addTo(map)
 
       // Add vessel count information with better styling
-      window.L.marker([42.0, -60.0], {
+      window.L.marker([midPoint[0] + 2, midPoint[1]], {
         icon: window.L.divIcon({
           className: "vessel-info shipping-element labels-element", // Added classes for toggling
           html: `
-          <div class="bg-migratewatch-panel/90 text-xs p-2 rounded-lg shadow-lg border border-migratewatch-orange/30">
-            <div class="font-bold text-migratewatch-orange">247 vessels/month</div>
-          </div>
-        `,
+        <div class="bg-migratewatch-panel/90 text-xs p-2 rounded-lg shadow-lg border border-migratewatch-orange/30">
+          <div class="font-bold text-migratewatch-orange">247 vessels/month</div>
+        </div>
+      `,
           iconSize: [130, 30],
         }),
       }).addTo(map)
 
       // Add vessel type breakdown with better styling
-      window.L.marker([45.0, -40.0], {
+      window.L.marker([midPoint[0] - 2, midPoint[1]], {
         icon: window.L.divIcon({
           className: "vessel-type shipping-element labels-element", // Added classes for toggling
           html: `
-          <div class="bg-migratewatch-panel/90 text-xs p-2 rounded-lg shadow-lg border border-migratewatch-orange/30">
-            <div class="font-bold mb-1 text-migratewatch-orange">Vessel Types</div>
-            <div class="grid grid-cols-3 gap-1">
-              <div class="flex items-center">
-                <div class="w-2 h-2 rounded-full bg-migratewatch-orange mr-1"></div>
-                <span>Cargo: 65%</span>
-              </div>
-              <div class="flex items-center">
-                <div class="w-2 h-2 rounded-full bg-migratewatch-magenta mr-1"></div>
-                <span>Tanker: 25%</span>
-              </div>
-              <div class="flex items-center">
-                <div class="w-2 h-2 rounded-full bg-migratewatch-cyan mr-1"></div>
-                <span>Other: 10%</span>
-              </div>
+        <div class="bg-migratewatch-panel/90 text-xs p-2 rounded-lg shadow-lg border border-migratewatch-orange/30">
+          <div class="font-bold mb-1 text-migratewatch-orange">Vessel Types</div>
+          <div class="grid grid-cols-3 gap-1">
+            <div class="flex items-center">
+              <div class="w-2 h-2 rounded-full bg-migratewatch-orange mr-1"></div>
+              <span>Cargo: 65%</span>
+            </div>
+            <div class="flex items-center">
+              <div class="w-2 h-2 rounded-full bg-migratewatch-magenta mr-1"></div>
+              <span>Tanker: 25%</span>
+            </div>
+            <div class="flex items-center">
+              <div class="w-2 h-2 rounded-full bg-migratewatch-cyan mr-1"></div>
+              <span>Other: 10%</span>
             </div>
           </div>
-        `,
+        </div>
+      `,
           iconSize: [220, 60],
         }),
       }).addTo(map)
 
-      // Add animated ship icons
+      // Add ship icons along the shipping lane
       const shipIcon = window.L.divIcon({
         className: "ship-icon shipping-element", // Added shipping-element class
         html: `
-        <div>
-          <svg viewBox="0 0 24 24" width="20" height="20" stroke="#ff9e00" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M18 8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2"></path>
-            <path d="M4 15h16"></path>
-            <path d="M4 15l2 7h12l2-7"></path>
-            <path d="M2 11h20"></path>
-            <path d="M12 2v6"></path>
-          </svg>
-        </div>
-      `,
+      <div>
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="#ff9e00" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2"></path>
+          <path d="M4 15h16"></path>
+          <path d="M4 15l2 7h12l2-7"></path>
+          <path d="M2 11h20"></path>
+          <path d="M12 2v6"></path>
+        </svg>
+      </div>
+    `,
         iconSize: [20, 20],
         iconAnchor: [10, 10],
       })
 
       // Add ships at various points along the shipping lane
-      const shipPositions: LatLngExpression[] = [
-        [41.0, -70.0],
-        [43.0, -55.0],
-        [46.0, -35.0],
-        [49.0, -15.0],
-      ]
+      const numShips = Math.min(4, Math.floor(apiShippingLanePath.length / 3))
+      const ships = []
 
-      const ships: Marker[] = []
-
-      shipPositions.forEach((pos) => {
+      for (let i = 0; i < numShips; i++) {
+        const index = Math.floor((i / numShips) * apiShippingLanePath.length)
+        const pos = apiShippingLanePath[index]
         const ship = window.L.marker(pos, { icon: shipIcon }).addTo(map)
         ships.push(ship)
-      })
+      }
 
       // Animate ships
       let direction = 1
@@ -727,7 +724,7 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
         ships.forEach((ship, i) => {
           const pos = ship.getLatLng()
           // Move slightly in the direction of the shipping lane
-          const newPos: LatLngExpression = [
+          const newPos = [
             pos.lat + (Math.random() * 0.01 - 0.005) * direction,
             pos.lng + (Math.random() * 0.05 - 0.025) * direction,
           ]
@@ -743,9 +740,8 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
       }
 
       animateShips()
-    } catch (error: any) {
-      console.error("Error adding shipping lanes:", error)
-      if (onError) onError("Error adding shipping lanes: " + error.message)
+    } catch (error) {
+      console.error("Error in addShippingLanes function for 2D map:", error)
     }
   }
 
@@ -841,9 +837,8 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
           iconSize: [130, 30],
         }),
       }).addTo(map)
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error adding conflict zones:", error)
-      if (onError) onError("Error adding conflict zones: " + error.message)
     }
   }
 
@@ -885,9 +880,8 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
           iconSize: [170, 30],
         }),
       }).addTo(map)
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error adding protected areas:", error)
-      if (onError) onError("Error adding protected areas: " + error.message)
     }
   }
 
@@ -955,9 +949,8 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
           iconSize: [130, 30],
         }),
       }).addTo(map)
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error adding alternative routes:", error)
-      if (onError) onError("Error adding alternative routes: " + error.message)
     }
   }
 
@@ -992,7 +985,7 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
       console.error("Failed to load Leaflet script")
       setLoadError("Failed to load Leaflet library. Please check your internet connection.")
       setScriptLoaded(false)
-      if (onError) onError("Failed to load Leaflet library. Please check your internet connection.")
+      if (onError) onError()
     }
 
     document.head.appendChild(script)
@@ -1071,7 +1064,9 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
   return (
     <>
       {loadError && (
-        <div className="bg-red-500 text-white p-2 rounded mb-2">{loadError}</div>
+        <div className="error-message">
+          Error: {loadError}. Please ensure Leaflet is correctly loaded and your network connection is stable.
+        </div>
       )}
       <div ref={mapContainerRef} className="map-container" style={{ height: "600px", width: "100%" }}></div>
 
@@ -1093,3 +1088,95 @@ export function MapView2D({ selectedSpecies, dataLayers, timelineData, onError }
     </>
   )
 }
+
+// MapInfoCard component
+function MapInfoCard({ title, position, species, data, onClose }: any) {
+  return (
+    <div
+      className="absolute bg-white rounded-lg shadow-lg border border-gray-200 p-4 z-50"
+      style={{
+        top: position.y,
+        left: position.x,
+        transform: "translate(-50%, -100%)",
+      }}
+    >
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="text-lg font-bold">{title}</h3>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            stroke="currentColor"
+            strokeWidth="2"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <p className="text-sm text-gray-600 mb-2">Species: {species.name}</p>
+      <div className="mb-2">
+        <h4 className="text-md font-semibold">Risk Assessment</h4>
+        <p className="text-sm">
+          Risk Level: {data.riskLevel} ({data.riskPercentage}%)
+        </p>
+        <p className="text-sm">Vessel Count: {data.vesselCount} vessels/month</p>
+      </div>
+      <div>
+        <h4 className="text-md font-semibold">Recommended Action</h4>
+        <p className="text-sm">{data.recommendedAction}</p>
+      </div>
+      <div className="mt-2">
+        <h4 className="text-md font-semibold">Alternative Route</h4>
+        <p className="text-sm">Distance: {data.alternativeRoute.distance}</p>
+        <p className="text-sm">Risk Reduction: {data.alternativeRoute.riskReduction}</p>
+        <p className="text-sm">Time Impact: {data.alternativeRoute.timeImpact}</p>
+      </div>
+    </div>
+  )
+}
+
+// MapLabel component
+function MapLabel({ text, position, type }: any) {
+  let bgColor = "bg-gray-100"
+  let textColor = "text-gray-700"
+
+  switch (type) {
+    case "info":
+      bgColor = "bg-blue-100"
+      textColor = "text-blue-700"
+      break
+    case "warning":
+      bgColor = "bg-yellow-100"
+      textColor = "text-yellow-700"
+      break
+    case "success":
+      bgColor = "bg-green-100"
+      textColor = "text-green-700"
+      break
+    case "neutral":
+    default:
+      bgColor = "bg-gray-100"
+      textColor = "text-gray-700"
+      break
+  }
+
+  return (
+    <div
+      className={`absolute rounded-full px-3 py-1 text-xs font-medium ${bgColor} ${textColor} z-50`}
+      style={{
+        top: position.y,
+        left: position.x,
+        transform: "translate(-50%, -50%)",
+        pointerEvents: "none",
+      }}
+    >
+      {text}
+    </div>
+  )
+}
+

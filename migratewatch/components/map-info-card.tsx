@@ -1,59 +1,111 @@
-import React from "react"
+"use client"
+
+import { useState } from "react"
+import { X } from "lucide-react"
+import type { SpeciesData } from "@/lib/types"
 
 interface MapInfoCardProps {
   title: string
-  position: { x: number; y: number }
-  species: any
-  data: any
+  species: SpeciesData
+  position: { x: number; y: number } | null
   onClose: () => void
+  data: {
+    riskLevel: string
+    riskPercentage: number
+    vesselCount: number
+    recommendedAction: string
+    alternativeRoute: {
+      distance: string
+      riskReduction: string
+      timeImpact: string
+    }
+  }
 }
 
-export function MapInfoCard({ title, position, species, data, onClose }: MapInfoCardProps) {
+export function MapInfoCard({ title, species, position, onClose, data }: MapInfoCardProps) {
+  const [isMinimized, setIsMinimized] = useState(false)
+
+  if (!position) return null
+
+  const toggleMinimize = () => {
+    setIsMinimized(!isMinimized)
+  }
+
+  const cardStyle = {
+    left: `${position.x}px`,
+    top: `${position.y}px`,
+    maxWidth: "300px",
+    zIndex: 1000,
+  }
+
   return (
     <div
-      className="absolute bg-white rounded-lg shadow-lg border border-gray-200 p-4 z-50"
-      style={{
-        top: position.y,
-        left: position.x,
-        transform: "translate(-50%, -100%)",
-      }}
+      className="absolute bg-migratewatch-panel/95 rounded-lg shadow-lg border border-migratewatch-cyan/30 overflow-hidden transition-all duration-300"
+      style={cardStyle}
     >
-      <div className="flex justify-between items-center mb-2">
-        <h3 className="text-lg font-bold">{title}</h3>
-        <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-          <svg
-            viewBox="0 0 24 24"
-            width="20"
-            height="20"
-            stroke="currentColor"
-            strokeWidth="2"
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+      <div className="flex items-center justify-between p-3 bg-migratewatch-darker border-b border-migratewatch-panel">
+        <h3 className="text-sm font-bold text-white flex items-center">
+          <div className="w-2 h-2 rounded-full bg-migratewatch-cyan mr-2 animate-pulse"></div>
+          {title}
+        </h3>
+        <div className="flex items-center space-x-1">
+          <button onClick={toggleMinimize} className="text-gray-400 hover:text-white transition-colors">
+            {isMinimized ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="7 13 12 18 17 13"></polyline>
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="7 11 12 6 17 11"></polyline>
+              </svg>
+            )}
+          </button>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
-      <p className="text-sm text-gray-600 mb-2">Species: {species.name}</p>
-      <div className="mb-2">
-        <h4 className="text-md font-semibold">Risk Assessment</h4>
-        <p className="text-sm">
-          Risk Level: {data.riskLevel} ({data.riskPercentage}%)
-        </p>
-        <p className="text-sm">Vessel Count: {data.vesselCount} vessels/month</p>
-      </div>
-      <div>
-        <h4 className="text-md font-semibold">Recommended Action</h4>
-        <p className="text-sm">{data.recommendedAction}</p>
-      </div>
-      <div className="mt-2">
-        <h4 className="text-md font-semibold">Alternative Route</h4>
-        <p className="text-sm">Distance: {data.alternativeRoute.distance}</p>
-        <p className="text-sm">Risk Reduction: {data.alternativeRoute.riskReduction}</p>
-        <p className="text-sm">Time Impact: {data.alternativeRoute.timeImpact}</p>
-      </div>
+
+      {!isMinimized && (
+        <div className="p-3 text-xs space-y-3">
+          <div className="flex justify-between">
+            <span className="text-gray-400">Species:</span>
+            <span>{species.name}</span>
+          </div>
+
+          <div className="flex justify-between">
+            <span className="text-gray-400">Risk Level:</span>
+            <span
+              className={`font-medium ${data.riskLevel === "High" ? "text-migratewatch-magenta" : "text-migratewatch-orange"}`}
+            >
+              {data.riskLevel} ({data.riskPercentage}%)
+            </span>
+          </div>
+
+          <div className="flex justify-between">
+            <span className="text-gray-400">Vessel Traffic:</span>
+            <span>{data.vesselCount} vessels/month</span>
+          </div>
+
+          <div className="flex justify-between">
+            <span className="text-gray-400">Recommended Action:</span>
+            <span className="text-migratewatch-green">{data.recommendedAction}</span>
+          </div>
+
+          <div className="mt-2 pt-2 border-t border-migratewatch-panel">
+            <div className="font-medium mb-1 text-migratewatch-cyan">Alternative Route Impact:</div>
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+              <div className="text-gray-400">Distance:</div>
+              <div>{data.alternativeRoute.distance}</div>
+              <div className="text-gray-400">Risk Reduction:</div>
+              <div className="text-migratewatch-green">{data.alternativeRoute.riskReduction}</div>
+              <div className="text-gray-400">Time Impact:</div>
+              <div>{data.alternativeRoute.timeImpact}</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

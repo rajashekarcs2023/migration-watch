@@ -9,6 +9,7 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "MigrateWatch - Marine Conservation Platform",
   description: "Track and analyze marine migration patterns and shipping conflicts",
+    generator: 'v0.dev'
 }
 
 export default function RootLayout({
@@ -17,7 +18,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="dark">
       <head>
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       </head>
@@ -29,3 +30,7 @@ export default function RootLayout({
     </html>
   )
 }
+
+
+
+import './globals.css'

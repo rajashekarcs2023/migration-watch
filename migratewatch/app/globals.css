@@ -38,10 +38,10 @@
 
 @layer base {
   * {
-    @apply border-border box-border;
+    @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-migratewatch-dark text-foreground;
   }
 }
 
@@ -320,3 +320,4 @@
   transform: scale(1.05);
   z-index: 1000;
 }
+

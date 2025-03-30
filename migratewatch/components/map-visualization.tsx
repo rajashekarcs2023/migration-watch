@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import type { SpeciesData, TimelineData, DataLayers } from "@/lib/types"
-import { Maximize, Minimize, Globe, MapIcon, ZoomIn, ZoomOut } from "lucide-react"
+import { Maximize, Minimize, Globe, MapIcon, ZoomIn, ZoomOut, RefreshCw } from "lucide-react"
 import Script from "next/script"
 import { MapView2D } from "./map-view-2d"
 import { MapView2DFallback } from "./map-view-2d-fallback"
+import { fetchMigrationData, fetchShippingLaneData } from "@/lib/api"
 
 // Declare Cesium as a global variable
 declare global {
@@ -17,6 +18,8 @@ declare global {
 
 interface MapVisualizationProps {
   selectedSpecies: SpeciesData
+  selectedYear: string
+  selectedMonth: string
   dataLayers: DataLayers
   timelineData: TimelineData
   is3DView: boolean
@@ -25,6 +28,8 @@ interface MapVisualizationProps {
 
 export function MapVisualization({
   selectedSpecies,
+  selectedYear,
+  selectedMonth,
   dataLayers,
   timelineData,
   is3DView,
@@ -41,10 +46,111 @@ export function MapVisualization({
   const cesiumRef = useRef<any>(null)
   const leafletMapRef = useRef<any>(null)
   const [map2DFailed, setMap2DFailed] = useState(false)
+  const [migrationCoordinates, setMigrationCoordinates] = useState<[number, number][]>([])
+  const [shippingLaneCoordinates, setShippingLaneCoordinates] = useState<[number, number][]>([])
+  const [isLoadingData, setIsLoadingData] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0) // Add a refresh key to force re-renders
+  const [noDataFound, setNoDataFound] = useState(false)
+
+  // Force cleanup and recreation of Cesium when key props change
+  useEffect(() => {
+    console.log("Key props changed, cleaning up Cesium")
+    // Clean up previous viewer if it exists
+    if (viewerRef.current) {
+      try {
+        console.log("Destroying previous Cesium viewer")
+        viewerRef.current.destroy()
+        viewerRef.current = null
+      } catch (e) {
+        console.error("Error destroying viewer:", e)
+      }
+    }
+
+    // Cancel any animation frames
+    if (animationFrameIdRef.current !== null) {
+      cancelAnimationFrame(animationFrameIdRef.current)
+      animationFrameIdRef.current = null
+    }
+
+    // Reset loading states
+    setCesiumLoaded(false)
+
+    // Reset error state
+    setLoadError(null)
+
+    // Force reload of Cesium script
+    setScriptLoaded(false)
+    setTimeout(() => {
+      setScriptLoaded(true)
+    }, 100)
+  }, [selectedSpecies, selectedYear, selectedMonth, refreshKey])
+
+  // Fetch migration data when species, year, or month changes
+  useEffect(() => {
+    const loadMigrationData = async () => {
+      setIsLoadingData(true)
+      try {
+        // Use the scientific name from the selected species
+        const data = await fetchMigrationData(selectedSpecies.name, selectedYear, selectedMonth)
+
+        if (data.noDataFound) {
+          // Set an empty array for coordinates and set a flag for no data found
+          setMigrationCoordinates([])
+          setNoDataFound(true)
+        } else if (data && data.coordinates && data.coordinates.length > 0) {
+          setMigrationCoordinates(data.coordinates)
+          setNoDataFound(false)
+        } else {
+          // Fallback case - should not happen with our new API response format
+          setMigrationCoordinates([])
+          setNoDataFound(true)
+        }
+      } catch (error) {
+        console.error("Error fetching migration data:", error)
+        setMigrationCoordinates([])
+        setNoDataFound(true)
+      } finally {
+        setIsLoadingData(false)
+      }
+    }
+
+    loadMigrationData()
+  }, [selectedSpecies, selectedYear, selectedMonth, refreshKey])
+
+  // Fetch shipping lane data when year or month changes
+  useEffect(() => {
+    const loadShippingLaneData = async () => {
+      if (!dataLayers.shippingLanes) {
+        // Don't fetch if shipping lanes are not enabled
+        setShippingLaneCoordinates([])
+        return
+      }
+
+      setIsLoadingData(true)
+      try {
+        const data = await fetchShippingLaneData(selectedYear, selectedMonth)
+
+        if (data.noDataFound) {
+          setShippingLaneCoordinates([])
+        } else if (data && data.coordinates && data.coordinates.length > 0) {
+          setShippingLaneCoordinates(data.coordinates)
+        } else {
+          setShippingLaneCoordinates([])
+        }
+      } catch (error) {
+        console.error("Error fetching shipping lane data:", error)
+        setShippingLaneCoordinates([])
+      } finally {
+        setIsLoadingData(false)
+      }
+    }
+
+    loadShippingLaneData()
+  }, [selectedYear, selectedMonth, dataLayers.shippingLanes, refreshKey])
 
   // Initialize Cesium after script is loaded (for 3D view)
   useEffect(() => {
-    if (!is3DView || !scriptLoaded || !cesiumContainerRef.current) return
+    if (!is3DView || !scriptLoaded || !cesiumContainerRef.current || isLoadingData) return
 
     // Make sure Cesium is available
     if (!window.Cesium) {
@@ -119,15 +225,15 @@ export function MapVisualization({
       // Initial view - with error handling
       try {
         viewer.camera.flyTo({
-          destination: Cesium.Cartesian3.fromDegrees(-70.0, 40.0, 3000000),
+          destination: Cesium.Cartesian3.fromDegrees(-25.0, 15.0, 8000000), // Updated to center on your shipping lanes
           complete: () => {
             try {
               // Add basic data to the map
-              if (dataLayers.migrationRoutes) {
+              if (dataLayers.migrationRoutes && !noDataFound && migrationCoordinates.length > 0) {
                 addMigrationRoutes(Cesium, viewer)
               }
 
-              if (dataLayers.shippingLanes) {
+              if (dataLayers.shippingLanes && shippingLaneCoordinates.length > 0) {
                 addShippingLanes(Cesium, viewer)
               }
 
@@ -139,7 +245,7 @@ export function MapVisualization({
               setViewChanging(false)
 
               // Start animation for migration routes
-              if (dataLayers.migrationRoutes) {
+              if (dataLayers.migrationRoutes && !noDataFound && migrationCoordinates.length > 0) {
                 startMigrationAnimation(Cesium, viewer)
               }
             } catch (error) {
@@ -156,11 +262,11 @@ export function MapVisualization({
 
         // Try to add data anyway
         try {
-          if (dataLayers.migrationRoutes) {
+          if (dataLayers.migrationRoutes && !noDataFound && migrationCoordinates.length > 0) {
             addMigrationRoutes(Cesium, viewer)
           }
 
-          if (dataLayers.shippingLanes) {
+          if (dataLayers.shippingLanes && shippingLaneCoordinates.length > 0) {
             addShippingLanes(Cesium, viewer)
           }
 
@@ -195,56 +301,36 @@ export function MapVisualization({
         viewerRef.current = null
       }
     }
-  }, [scriptLoaded, is3DView, dataLayers])
+  }, [
+    scriptLoaded,
+    is3DView,
+    dataLayers,
+    migrationCoordinates,
+    shippingLaneCoordinates,
+    isLoadingData,
+    selectedSpecies,
+    selectedYear,
+    selectedMonth,
+    refreshKey,
+    noDataFound,
+  ])
 
   // Add migration routes
   function addMigrationRoutes(Cesium: any, viewer: any) {
     try {
-      // North Atlantic Right Whale route
-      viewer.entities.add({
-        polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArray([
-            -67.0, 44.0, -70.0, 42.5, -71.0, 41.0, -74.0, 39.0, -75.5, 35.0, -80.0, 32.0, -81.5, 30.5,
-          ]),
-          width: 3,
-          material: new Cesium.PolylineGlowMaterialProperty({
-            glowPower: 0.2,
-            color: Cesium.Color.CYAN,
-          }),
-        },
-      })
-    } catch (error) {
-      console.error("Error adding migration routes:", error)
-    }
-  }
+      // Don't add any routes if no data found or empty coordinates
+      if (noDataFound || migrationCoordinates.length === 0) {
+        console.log("No migration data to display")
+        return
+      }
 
-  // Add animated migration points
-  function startMigrationAnimation(Cesium: any, viewer: any) {
-    if (!viewer || viewer.isDestroyed()) return
+      // Use the fetched coordinates
+      const coordinates = migrationCoordinates
 
-    // Cancel any existing animation
-    if (animationFrameIdRef.current !== null) {
-      cancelAnimationFrame(animationFrameIdRef.current)
-      animationFrameIdRef.current = null
-    }
-
-    const positions = [
-      [-67.0, 44.0],
-      [-70.0, 42.5],
-      [-71.0, 41.0],
-      [-74.0, 39.0],
-      [-75.5, 35.0],
-      [-80.0, 32.0],
-      [-81.5, 30.5],
-    ]
-
-    const entities: any[] = []
-
-    try {
-      // Create 5 entities at different positions along the path
-      for (let i = 0; i < 5; i++) {
-        const entity = viewer.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(positions[0][0], positions[0][1]),
+      // Add each coordinate as a separate point entity
+      coordinates.forEach((coord) => {
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(coord[0], coord[1]),
           point: {
             pixelSize: 8,
             color: Cesium.Color.CYAN,
@@ -252,41 +338,89 @@ export function MapVisualization({
             outlineWidth: 2,
           },
         })
-        entities.push({
-          entity,
-          progress: i * 0.2, // Spread entities along the path
-          speed: 0.0005,
-        })
+      })
+    } catch (error) {
+      console.error("Error adding migration routes:", error)
+    }
+  }
+
+  // Replace the startMigrationAnimation function with this version
+  // We don't need the animation for static points, but we'll keep a simplified version
+  function startMigrationAnimation(Cesium: any, viewer: any) {
+    if (!viewer || viewer.isDestroyed()) return
+
+    // Don't animate if no data found or empty coordinates
+    if (noDataFound || migrationCoordinates.length === 0) {
+      console.log("No migration data to animate")
+      return
+    }
+
+    // Cancel any existing animation
+    if (animationFrameIdRef.current !== null) {
+      cancelAnimationFrame(animationFrameIdRef.current)
+      animationFrameIdRef.current = null
+      cancelAnimationFrame(animationFrameIdRef.current)
+      animationFrameIdRef.current = null
+    }
+
+    // Use the fetched coordinates
+    const positions = migrationCoordinates
+
+    // We'll add a pulsing effect to a few random points
+    try {
+      // Select a few random points to animate
+      const randomIndices = []
+      const numAnimatedPoints = Math.min(5, positions.length)
+
+      while (randomIndices.length < numAnimatedPoints) {
+        const idx = Math.floor(Math.random() * positions.length)
+        if (!randomIndices.includes(idx)) {
+          randomIndices.push(idx)
+        }
       }
 
-      // Animation function
+      // Create animated points at these positions
+      const entities: any[] = []
+
+      randomIndices.forEach((idx) => {
+        const entity = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(positions[idx][0], positions[idx][1]),
+          point: {
+            pixelSize: 12,
+            color: Cesium.Color.CYAN.withAlpha(0.7),
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 2,
+          },
+        })
+
+        entities.push({
+          entity,
+          originalSize: 12,
+          growing: true,
+        })
+      })
+
+      // Animation function for pulsing effect
       const animate = () => {
         if (!viewer.isDestroyed()) {
           try {
             entities.forEach((item) => {
-              item.progress += item.speed
-              if (item.progress > 1) {
-                item.progress = 0
+              // Create pulsing effect
+              if (item.growing) {
+                item.entity.point.pixelSize = item.originalSize * 1.5
+                item.growing = false
+              } else {
+                item.entity.point.pixelSize = item.originalSize
+                item.growing = true
               }
-
-              // Find position on the path
-              const pathLength = positions.length - 1
-              const segmentIndex = Math.floor(item.progress * pathLength)
-              const segmentProgress = (item.progress * pathLength) % 1
-
-              const start = positions[segmentIndex]
-              const end = positions[Math.min(segmentIndex + 1, positions.length - 1)]
-
-              const lng = start[0] + (end[0] - start[0]) * segmentProgress
-              const lat = start[1] + (end[1] - start[1]) * segmentProgress
-
-              item.entity.position = Cesium.Cartesian3.fromDegrees(lng, lat)
             })
 
-            animationFrameIdRef.current = requestAnimationFrame(animate)
+            // Slower animation rate for pulsing
+            setTimeout(() => {
+              animationFrameIdRef.current = requestAnimationFrame(animate)
+            }, 500)
           } catch (error) {
             console.error("Error in animation loop:", error)
-            // Don't continue the animation if there's an error
           }
         }
       }
@@ -300,19 +434,60 @@ export function MapVisualization({
   // Add shipping lanes
   function addShippingLanes(Cesium: any, viewer: any) {
     try {
+      // Don't add any shipping lanes if no data found or empty coordinates
+      if (shippingLaneCoordinates.length === 0) {
+        console.log("No shipping lane data to display")
+        return
+      }
+
+      // Convert coordinates to Cesium format
+      const cesiumCoords = []
+      for (const coord of shippingLaneCoordinates) {
+        cesiumCoords.push(coord[0], coord[1])
+      }
+
+      // Add the shipping lane
       viewer.entities.add({
         polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArray([
-            -74.0, 40.7, -60.0, 42.0, -40.0, 45.0, -20.0, 48.0, -5.0, 50.0, 0.0, 51.5,
-          ]),
-          width: 2,
+          positions: Cesium.Cartesian3.fromDegreesArray(cesiumCoords),
+          width: 3,
           material: new Cesium.PolylineDashMaterialProperty({
             color: Cesium.Color.ORANGE,
           }),
         },
+        properties: {
+          type: "shipping-lane",
+          laneType: "Standard",
+          id: "standard",
+          name: "Shipping Lane",
+        },
       })
+
+      // Add a label for the shipping lane
+      const midIndex = Math.floor(shippingLaneCoordinates.length / 2)
+      if (midIndex < shippingLaneCoordinates.length) {
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(
+            shippingLaneCoordinates[midIndex][0],
+            shippingLaneCoordinates[midIndex][1],
+            100000, // Height above surface
+          ),
+          label: {
+            text: "Shipping Lane",
+            font: "14px sans-serif",
+            fillColor: Cesium.Color.ORANGE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            verticalOrigin: Cesium.VerticalOrigin.CENTER,
+            horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+            pixelOffset: new Cesium.Cartesian2(0, -10),
+            translucencyByDistance: new Cesium.NearFarScalar(1.5e2, 1.0, 1.5e7, 0.0),
+          },
+        })
+      }
     } catch (error) {
-      console.error("Error adding shipping lanes:", error)
+      console.error("Error in addShippingLanes function:", error)
     }
   }
 
@@ -419,6 +594,28 @@ export function MapVisualization({
     }
   }, [viewChanging])
 
+  // Function to force refresh the map
+  const forceRefresh = () => {
+    console.log("Manual refresh triggered")
+    setViewChanging(true)
+    setRefreshKey((prev) => prev + 1)
+
+    // Reset loading state after a delay
+    setTimeout(() => {
+      setViewChanging(false)
+    }, 1000)
+  }
+
+  console.log("Rendering MapVisualization with:", {
+    species: selectedSpecies.name,
+    year: selectedYear,
+    month: selectedMonth,
+    is3DView,
+  })
+
+  // Create a formatted selection string for the alert
+  const selectionString = `${selectedSpecies.name}${selectedYear ? ` - Year: ${selectedYear}` : ""}${selectedMonth && selectedMonth !== "all" ? ` - Month: ${selectedMonth}` : selectedMonth === "all" ? " - All Year" : ""}`
+
   return (
     <div className="flex-1 relative bg-migratewatch-dark">
       {/* Load Cesium from CDN (for 3D view) */}
@@ -441,11 +638,11 @@ export function MapVisualization({
       )}
 
       {/* Map Controls */}
-      <div className="absolute top-4 right-4 z-10 flex space-x-2">
+      <div className="absolute top-4 right-4 z-50 flex space-x-2">
         <Button
           variant="outline"
           size="icon"
-          className="bg-migratewatch-panel border-migratewatch-panel hover:bg-migratewatch-panel/80 hover:text-migratewatch-cyan"
+          className="bg-migratewatch-panel border-migratewatch-panel hover:bg-migratewatch-panel/80 hover:text-migratewatch-cyan shadow-lg"
           onClick={toggleViewMode}
           title={is3DView ? "Switch to 2D Map" : "Switch to 3D Globe"}
           disabled={viewChanging}
@@ -455,7 +652,17 @@ export function MapVisualization({
         <Button
           variant="outline"
           size="icon"
-          className="bg-migratewatch-panel border-migratewatch-panel hover:bg-migratewatch-panel/80 hover:text-migratewatch-cyan"
+          className="bg-migratewatch-panel border-migratewatch-panel hover:bg-migratewatch-panel/80 hover:text-migratewatch-cyan shadow-lg"
+          onClick={forceRefresh}
+          title="Force Refresh Map"
+          disabled={viewChanging}
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="bg-migratewatch-panel border-migratewatch-panel hover:bg-migratewatch-panel/80 hover:text-migratewatch-cyan shadow-lg"
           onClick={toggleFullscreen}
           title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
         >
@@ -464,11 +671,11 @@ export function MapVisualization({
       </div>
 
       {/* Zoom Controls */}
-      <div className="absolute top-20 right-4 z-10 flex flex-col space-y-2">
+      <div className="absolute top-20 right-4 z-50 flex flex-col space-y-2">
         <Button
           variant="outline"
           size="icon"
-          className="bg-migratewatch-panel border-migratewatch-panel hover:bg-migratewatch-panel/80 hover:text-migratewatch-cyan"
+          className="bg-migratewatch-panel border-migratewatch-panel hover:bg-migratewatch-panel/80 hover:text-migratewatch-cyan shadow-lg"
           title="Zoom In"
           onClick={handleZoomIn}
         >
@@ -477,7 +684,7 @@ export function MapVisualization({
         <Button
           variant="outline"
           size="icon"
-          className="bg-migratewatch-panel border-migratewatch-panel hover:bg-migratewatch-panel/80 hover:text-migratewatch-cyan"
+          className="bg-migratewatch-panel border-migratewatch-panel hover:bg-migratewatch-panel/80 hover:text-migratewatch-cyan shadow-lg"
           title="Zoom Out"
           onClick={handleZoomOut}
         >
@@ -490,8 +697,8 @@ export function MapVisualization({
         <div className="text-xs font-medium mb-2">Legend</div>
         <div className="space-y-1.5">
           <div className="flex items-center space-x-2">
-            <div className="w-4 h-0.5 bg-migratewatch-cyan migration-path"></div>
-            <span className="text-xs">Migration Routes</span>
+            <div className="w-3 h-3 rounded-full bg-migratewatch-cyan"></div>
+            <span className="text-xs">Migration Points</span>
           </div>
           <div className="flex items-center space-x-2">
             <div className="w-4 h-0.5 bg-migratewatch-orange"></div>
@@ -506,16 +713,36 @@ export function MapVisualization({
             <span className="text-xs">Alternative Routes</span>
           </div>
         </div>
-        <div className="text-[10px] text-gray-400 mt-2">Demo Data</div>
+        <div className="text-[10px] text-gray-400 mt-2">
+          {selectedSpecies.name} - {selectedMonth === "all" ? "All Year" : `Month ${selectedMonth}`} {selectedYear}
+        </div>
       </div>
 
       {/* Loading Indicator */}
-      {viewChanging && (
+      {(viewChanging || isLoadingData) && (
         <div className="absolute inset-0 flex items-center justify-center bg-migratewatch-dark bg-opacity-80 z-20">
           <div className="text-white flex flex-col items-center">
             <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-migratewatch-cyan mb-3"></div>
-            <div>Changing view mode...</div>
+            <div>{isLoadingData ? "Loading migration data..." : "Changing view mode..."}</div>
           </div>
+        </div>
+      )}
+
+      {noDataFound && !isLoadingData && (
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-30 bg-migratewatch-panel/90 p-4 rounded-lg shadow-lg border border-migratewatch-magenta text-center">
+          <div className="text-migratewatch-magenta text-lg font-bold mb-2">No Fish Found</div>
+          <div className="text-white text-sm">
+            No migration data available for:
+            <br />
+            <span className="font-medium">{selectionString}</span>
+          </div>
+          <Button
+            className="mt-4 bg-migratewatch-cyan hover:bg-migratewatch-cyan/80 text-migratewatch-dark"
+            onClick={forceRefresh}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
         </div>
       )}
 
@@ -528,6 +755,8 @@ export function MapVisualization({
           {!map2DFailed ? (
             <MapView2D
               selectedSpecies={selectedSpecies}
+              selectedYear={selectedYear}
+              selectedMonth={selectedMonth}
               dataLayers={dataLayers}
               timelineData={timelineData}
               onError={() => {
@@ -539,6 +768,19 @@ export function MapVisualization({
             <MapView2DFallback selectedSpecies={selectedSpecies} dataLayers={dataLayers} timelineData={timelineData} />
           )}
         </>
+      )}
+      {/* Floating View Toggle Button (backup) */}
+      {!is3DView && (
+        <div className="fixed bottom-20 right-4 z-50">
+          <Button
+            size="sm"
+            className="bg-migratewatch-cyan hover:bg-migratewatch-cyan/80 text-migratewatch-dark shadow-lg"
+            onClick={() => setIs3DView(true)}
+          >
+            <Globe className="h-4 w-4 mr-1" />
+            3D View
+          </Button>
+        </div>
       )}
     </div>
   )
