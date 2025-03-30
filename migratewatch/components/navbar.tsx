@@ -3,6 +3,8 @@
 import { useState } from "react"
 import { FishIcon as Whale } from "lucide-react"
 import { cn } from "@/lib/utils"
+import AuthButtons from "@/components/ui/AuthButtons";
+import UserProfile from "./UserProfile";
 
 interface NavbarProps {
   activeTab?: string
@@ -57,7 +59,9 @@ export function Navbar({ activeTab = "Dashboard", setActiveTab }: NavbarProps) {
               ))}
             </ul>
           </nav>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-6">
+            <AuthButtons />
+            <UserProfile />
             <span className="text-xs text-gray-400">Last updated: March 29, 2025 - 08:30 UTC</span>
           </div>
         </div>
